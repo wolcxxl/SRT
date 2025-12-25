@@ -3,17 +3,110 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="referrer" content="no-referrer">
     <title>Smart Reader v66</title>
+    
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#252526">
+    
     <link rel="stylesheet" href="css/style.css">
     <link rel="manifest" href="manifest.json">
-    
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512' fill='%23007acc'><path d='M464 64H48C21.5 64 0 85.5 0 112v288c0 26.5 21.5 48 48 48h416c26.5 0 48-21.5 48-48V112c0-26.5-21.5-48-48-48z'/></svg>">
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
 </head>
 <body>
-    <div id="progressBar"></div>
-    <div id="library-view" class="active">...</div>
-    <script type="module" src="js/app.js"></script>
+
+<div id="progressBar"></div>
+
+<div id="library-view" class="active">
+    <div class="lib-header">
+        <span class="lib-title">Библиотека</span>
+        <label class="add-book-btn"><span>+ Книга</span><input type="file" id="libFileInput" style="display:none"></label>
+    </div>
+    <div class="lib-grid" id="bookGrid"></div>
+</div>
+
+<div id="reader-view">
+    <div id="menu-bar"><button id="menu-toggle" title="Настройки">☰</button></div>
+
+    <div id="settings-panel">
+        <div style="padding: 10px;">
+            <div class="menu-row" style="padding:0; margin-bottom:10px;">
+                <button id="backToLib" class="icon-btn" style="width:auto; padding:0 10px">⬅ Библиотека</button>
+                <div style="display:flex; gap:10px; align-items:center">
+                    <span>🔊:</span>
+                    <select id="voiceSource" style="width:140px;">
+                        <option value="google">Google Cloud</option>
+                        <option value="edge">Edge (Natural)</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="menu-row" style="padding:0;">
+                <span>Скорость:</span>
+                <input type="range" id="rateRange" min="0.5" max="1.5" step="0.1" value="1.0" style="width:100px">
+                <span id="rateVal" style="font-size:12px; width:30px">1.0</span>
+            </div>
+            
+            <div id="voiceSettings" class="voice-settings" style="display:none">
+                <div class="voice-row"><span>🇷🇺 RU:</span><select id="voiceRu" class="voice-select"><option value="f">Женский</option><option value="m">Мужской</option></select></div>
+                <div class="voice-row"><span>🇺🇸 EN:</span><select id="voiceEn" class="voice-select"><option value="f">Female</option><option value="m">Male</option></select></div>
+                <div class="voice-row"><span>🇩🇪 DE:</span><select id="voiceDe" class="voice-select"><option value="f">Weiblich</option><option value="m">Männlich</option></select></div>
+            </div>
+        </div>
+
+        <div class="menu-row" style="border-top:1px solid #333">
+            <div class="group">
+                <select id="fontFamily" style="width:65px"><option value="ui">Sans</option><option value="serif">Serif</option><option value="mono">Mono</option></select>
+                <select id="fontSize" style="width:50px"><option value="14px">14</option><option value="16px">16</option><option value="18px" selected>18</option><option value="20px">20</option><option value="24px">24</option></select>
+                <button id="boldToggle" class="icon-btn" style="font-weight:bold; width:30px">B</button>
+            </div>
+            
+            <div class="group">
+                <select id="srcLang" class="main-select"><option value="auto">Auto</option><option value="en">EN</option><option value="de">DE</option><option value="fr">FR</option></select>
+                <span style="color:#666">→</span>
+                <select id="tgtLang" class="main-select"><option value="ru">RU</option><option value="en">EN</option><option value="uk">UK</option></select>
+            </div>
+        </div>
+        
+        <div class="menu-row">
+            <button id="layoutBtn" class="icon-btn" title="Вид">⬍</button>
+            <div class="group" id="controls" style="display:none;">
+                <button id="prevBtn" class="icon-btn">←</button>
+                <select id="chapterSelect" style="max-width:80px"></select>
+                <button id="nextBtn" class="icon-btn">→</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="container">
+        <div id="panel1" class="panel"><div class="panel-head">Оригинал</div><div id="origPanel" class="content-area"></div></div>
+        <div id="resizer" class="resizer"></div>
+        <div id="panel2" class="panel">
+            <div class="panel-head">
+                <span>Перевод</span>
+                <div class="trans-controls">
+                    <button id="btnStart" class="btn-tiny btn-start" title="Перевести">▶</button>
+                    <button id="btnRead" class="btn-tiny btn-read" title="Читать">🔊</button>
+                    <button id="btnStop" class="btn-tiny btn-stop" disabled>■ Стоп</button>
+                </div>
+            </div>
+            <div id="transPanel" class="content-area"></div>
+        </div>
+    </div>
+</div>
+
+<button id="global-stop-btn">🔇</button>
+<div id="tooltip"></div>
+<div id="selection-bar"><button class="action-btn" id="translateSelBtn">🌎 Перевести / 🔊</button></div>
+<div id="statusLine">Ready</div>
+<div id="loader"><div>Загрузка...</div></div>
+
+<script type="module" src="js/app.js"></script>
+
 </body>
 </html>
