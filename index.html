@@ -30,25 +30,29 @@
 </div>
 
 <div id="reader-view">
-    <div id="menu-bar"><button id="menu-toggle" title="Настройки">☰</button></div>
+    <div id="menu-bar">
+        <button id="menu-toggle" title="Настройки">☰ Меню</button>
+    </div>
 
     <div id="settings-panel">
-        <div style="padding: 10px;">
-            <div class="menu-row" style="padding:0; margin-bottom:10px;">
+        <div style="padding: 15px;">
+            <div class="menu-row">
                 <button id="backToLib" class="icon-btn" style="width:auto; padding:0 10px">⬅ Библиотека</button>
-                <div style="display:flex; gap:10px; align-items:center">
-                    <span>🔊:</span>
-                    <select id="voiceSource" style="width:140px;">
-                        <option value="google">Google Cloud</option>
-                        <option value="edge">Edge/Local</option>
-                    </select>
+                <div class="group" style="border: 1px solid #444; border-radius: 4px; overflow: hidden;">
+                    <button id="prevBtn" class="icon-btn" title="Пред. глава">←</button>
+                    <select id="chapterSelect" style="max-width:150px; border:none; height: 30px; background: #333; color: white;"></select>
+                    <button id="nextBtn" class="icon-btn" title="След. глава">→</button>
                 </div>
             </div>
-            
-            <div class="menu-row" style="padding:0;">
-                <span>Скорость:</span>
-                <input type="range" id="rateRange" min="0.5" max="1.5" step="0.1" value="1.0" style="width:100px">
-                <span id="rateVal" style="font-size:12px; width:30px">1.0</span>
+
+            <div class="menu-row">
+                <div style="display:flex; gap:10px; align-items:center; width:100%">
+                    <span>🔊 Источник:</span>
+                    <select id="voiceSource" style="flex:1; background:#333; color:fff; border:1px solid #555; height:30px; border-radius:4px">
+                        <option value="google">Google Cloud</option>
+                        <option value="edge">Edge (Natural)</option>
+                    </select>
+                </div>
             </div>
             
             <div id="voiceSettings" class="voice-settings" style="display:none">
@@ -56,45 +60,47 @@
                 <div class="voice-row"><span>🇺🇸 EN:</span><select id="voiceEn" class="voice-select"><option value="f">Female</option><option value="m">Male</option></select></div>
                 <div class="voice-row"><span>🇩🇪 DE:</span><select id="voiceDe" class="voice-select"><option value="f">Weiblich</option><option value="m">Männlich</option></select></div>
             </div>
-        </div>
-
-        <div class="menu-row" style="border-top:1px solid #333">
-            <div class="group">
-                <select id="fontFamily" style="width:65px"><option value="ui">Sans</option><option value="serif">Serif</option><option value="mono">Mono</option></select>
-                <select id="fontSize" style="width:50px"><option value="14px">14</option><option value="16px">16</option><option value="18px" selected>18</option><option value="20px">20</option><option value="24px">24</option></select>
-                <button id="boldToggle" class="icon-btn" style="font-weight:bold; width:30px">B</button>
-            </div>
             
-            <div class="group">
-                <select id="srcLang" class="main-select"><option value="auto">Auto</option><option value="en">EN</option><option value="de">DE</option><option value="fr">FR</option></select>
-                <span style="color:#666">→</span>
-                <select id="tgtLang" class="main-select"><option value="ru">RU</option><option value="en">EN</option><option value="uk">UK</option></select>
+            <div class="menu-row">
+                <span>Скорость: <span id="rateVal" style="font-weight:bold; color:var(--accent)">1.0</span></span>
+                <input type="range" id="rateRange" min="0.5" max="2.0" step="0.1" value="1.0" style="flex:1; margin-left:10px">
             </div>
-        </div>
-        
-        <div class="menu-row">
-            <button id="layoutBtn" class="icon-btn" title="Вид">⬍</button>
-            <div class="group" id="controls" style="display:none;">
-                <button id="prevBtn" class="icon-btn">←</button>
-                <select id="chapterSelect" style="max-width:80px"></select>
-                <button id="nextBtn" class="icon-btn">→</button>
+
+            <div class="menu-row" style="border-top:1px solid #333; padding-top:10px; margin-top:5px">
+                <div class="group">
+                    <select id="fontFamily" style="width:70px"><option value="ui">Sans</option><option value="serif">Serif</option><option value="mono">Mono</option></select>
+                    <select id="fontSize" style="width:50px"><option value="14px">14</option><option value="16px">16</option><option value="18px" selected>18</option><option value="20px">20</option><option value="24px">24</option></select>
+                    <button id="boldToggle" class="icon-btn" style="font-weight:bold; width:30px">B</button>
+                    <button id="layoutBtn" class="icon-btn" title="Вид">⬍</button>
+                </div>
+                
+                <div class="group">
+                    <select id="srcLang" class="main-select"><option value="auto">Auto</option><option value="en">EN</option><option value="de">DE</option></select>
+                    <span style="color:#666">→</span>
+                    <select id="tgtLang" class="main-select"><option value="ru">RU</option><option value="en">EN</option></select>
+                </div>
             </div>
         </div>
     </div>
 
-    <div id="container">
-        <div id="panel1" class="panel"><div class="panel-head">Оригинал</div><div id="origPanel" class="content-area"></div></div>
-        <div id="resizer" class="resizer"></div>
-        <div id="panel2" class="panel">
-            <div class="panel-head">
-                <span>Перевод</span>
-                <div class="trans-controls">
-                    <button id="btnStart" class="btn-tiny btn-start" title="Перевести">▶</button>
-                    <button id="btnRead" class="btn-tiny btn-read" title="Читать">🔊</button>
-                    <button id="btnStop" class="btn-tiny btn-stop" disabled>■ Стоп</button>
+    <div id="reader-wrapper" style="position:relative; flex:1; display:flex; overflow:hidden;">
+        <div id="nav-zone-left" class="nav-zone left"></div>
+        <div id="nav-zone-right" class="nav-zone right"></div>
+
+        <div id="container">
+            <div id="panel1" class="panel"><div class="panel-head">Оригинал</div><div id="origPanel" class="content-area"></div></div>
+            <div id="resizer" class="resizer"></div>
+            <div id="panel2" class="panel">
+                <div class="panel-head">
+                    <span>Перевод</span>
+                    <div class="trans-controls">
+                        <button id="btnStart" class="btn-tiny btn-start" title="Перевести">▶</button>
+                        <button id="btnRead" class="btn-tiny btn-read" title="Читать">🔊</button>
+                        <button id="btnStop" class="btn-tiny btn-stop" disabled>■ Стоп</button>
+                    </div>
                 </div>
+                <div id="transPanel" class="content-area"></div>
             </div>
-            <div id="transPanel" class="content-area"></div>
         </div>
     </div>
 </div>
@@ -105,6 +111,10 @@
 <div id="statusLine">Ready</div>
 <div id="loader"><div>Загрузка...</div></div>
 
+<div id="image-modal">
+    <img id="modal-img-element" src="" alt="Full view">
+    <button class="modal-close-btn" id="modal-close">Закрыть</button>
+</div>
 <script type="module" src="js/app.js"></script>
 
 </body>
