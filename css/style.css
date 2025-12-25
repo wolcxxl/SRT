@@ -689,89 +689,29 @@ button.active-state {
     background: var(--danger);
     border-color: var(--danger);
 }
-/* --- Navigation Zones --- */
+/* --- Navigation Zones (Исправленные) --- */
 .nav-zone {
     position: absolute;
     top: 0;
     bottom: 0;
-    width: 20%; /* Зона занимает 20% экрана с краев */
-    z-index: 90; /* Поверх текста, но под модалками */
+    width: 25px;       /* Фиксированная узкая ширина */
+    min-width: 3%;     /* Или 3%, если экран огромный */
+    z-index: 90;
     cursor: pointer;
-    /* Полупрозрачный фон для индикации (можно сделать opacity: 0 для невидимости) */
-    background: rgba(255, 255, 255, 0.02);
-    transition: background 0.2s, opacity 0.2s;
-}
-
-.nav-zone:hover {
-    background: rgba(255, 255, 255, 0.05); /* Подсветка при наведении */
+    background: transparent; /* Полностью невидимы в покое */
+    transition: background 0.1s;
+    /* Отключаем выделение при тапе на зону */
+    -webkit-tap-highlight-color: transparent; 
 }
 
 .nav-zone:active {
-    background: rgba(255, 255, 255, 0.1); /* Вспышка при клике */
+    background: rgba(255, 255, 255, 0.1); /* Легкая вспышка при нажатии */
 }
 
 .nav-zone.left { left: 0; }
 .nav-zone.right { right: 0; }
 
-/* --- Page Turn Animation --- */
-@keyframes slidePage {
-    0% { transform: translateY(10px); opacity: 0.8; }
-    100% { transform: translateY(0); opacity: 1; }
-}
-
-.page-anim {
-    animation: slidePage 0.3s ease-out;
-}
-
-/* Исправление для контента, чтобы зоны не перекрывали скроллбар */
-#container {
-    padding: 0 5px; /* Небольшой отступ, чтобы скроллбар был доступен */
-}
-
-/* Настройки для мобильных */
+/* На мобильных чуть шире, чтобы пальцем попасть, но не перекрывать текст */
 @media (max-width: 600px) {
-    .nav-zone { width: 15%; } /* На телефоне зоны уже, чтобы было место для скролла пальцем */
-}
-/* --- Navigation Zones --- */
-.nav-zone {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 20%; /* Зона занимает 20% экрана с краев */
-    z-index: 90; /* Поверх текста, но под модалками */
-    cursor: pointer;
-    /* Полупрозрачный фон для индикации (можно сделать opacity: 0 для невидимости) */
-    background: rgba(255, 255, 255, 0.02);
-    transition: background 0.2s, opacity 0.2s;
-}
-
-.nav-zone:hover {
-    background: rgba(255, 255, 255, 0.05); /* Подсветка при наведении */
-}
-
-.nav-zone:active {
-    background: rgba(255, 255, 255, 0.1); /* Вспышка при клике */
-}
-
-.nav-zone.left { left: 0; }
-.nav-zone.right { right: 0; }
-
-/* --- Page Turn Animation --- */
-@keyframes slidePage {
-    0% { transform: translateY(10px); opacity: 0.8; }
-    100% { transform: translateY(0); opacity: 1; }
-}
-
-.page-anim {
-    animation: slidePage 0.3s ease-out;
-}
-
-/* Исправление для контента, чтобы зоны не перекрывали скроллбар */
-#container {
-    padding: 0 5px; /* Небольшой отступ, чтобы скроллбар был доступен */
-}
-
-/* Настройки для мобильных */
-@media (max-width: 600px) {
-    .nav-zone { width: 15%; } /* На телефоне зоны уже, чтобы было место для скролла пальцем */
+    .nav-zone { width: 30px; }
 }
