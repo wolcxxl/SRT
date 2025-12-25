@@ -3,46 +3,33 @@ import { translateApi, fetchPhonetics } from './api.js';
 import { loadZip, parseFb2, getFb2ChapterText, parsePdf } from './parser.js';
 import { speakDevice, playGoogleSingle, stopAudio } from './tts.js';
 
-// --- Глобальное состояние (State) ---
+// --- Глобальное состояние ---
 const state = {
     book: null,
     fb2Chapters: [],
-    spine: null, // для epub
+    spine: null,
     currentIdx: 0,
     isWorking: false,
     isAudioPlaying: false,
-    isVertical: true, // Режим отображения
-    t_sync: null // Для синхронизации скролла
+    isVertical: true,
+    t_sync: null
 };
 
-// --- Ссылки на UI элементы ---
-// ВАЖНО: Мы получаем элементы только когда DOM загружен, поэтому объект пустой, 
-// а заполним мы его в функции initUI()
+// --- UI Кэш (заполняется при старте) ---
 let ui = {};
 
-// --- Инициализация ---
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. Сначала находим все элементы (чтобы избежать null ошибок)
     initUI();
-    
-    // 2. Инициализируем базу данных
     await initDB();
     refreshLibrary();
-    
-    // 3. Вешаем обработчики событий
-    setupEventListeners();
+    setupEventListeners(); // <-- Здесь магия
     setupResizer();
     setupSelectionBar();
-    
-    // 4. Глобальный клик (делегирование)
     document.body.addEventListener('click', handleGlobalClicks);
-
-    // 5. Исправление для Chrome/Edge (голоса могут не подгрузиться сразу)
+    
+    // Фикс для голосов
     if (window.speechSynthesis) {
-        window.speechSynthesis.onvoiceschanged = () => {
-            console.log("Голоса обновлены"); 
-            // Можно добавить логику обновления списков, если нужно
-        };
+        window.speechSynthesis.onvoiceschanged = () => {};
     }
 });
 
@@ -54,37 +41,25 @@ function initUI() {
         fileInput: document.getElementById('libFileInput'),
         status: document.getElementById('statusLine'),
         loader: document.getElementById('loader'),
-        
-        // Панели
         container: document.getElementById('container'),
         panel1: document.getElementById('panel1'),
         panel2: document.getElementById('panel2'),
         orig: document.getElementById('origPanel'),
         trans: document.getElementById('transPanel'),
         resizer: document.getElementById('resizer'),
-        
-        // Навигация и меню
         chapSel: document.getElementById('chapterSelect'),
         tooltip: document.getElementById('tooltip'),
         selBar: document.getElementById('selection-bar'),
         selBtn: document.getElementById('translateSelBtn'),
-        
-        // Настройки
         voiceSrc: document.getElementById('voiceSource'),
         voiceRu: document.getElementById('voiceRu'),
         voiceEn: document.getElementById('voiceEn'),
         voiceDe: document.getElementById('voiceDe'),
-        
-        // --- ИСПРАВЛЕНИЕ СКОРОСТИ ---
-        rateRange: document.getElementById('rateRange'),
-        rateVal: document.getElementById('rateVal'),
-        // -----------------------------
-        
+        // Слайдер берем напрямую в events, но оставим тут для чтения скорости
+        rateRange: document.getElementById('rateRange'), 
         srcLang: document.getElementById('srcLang'),
         tgtLang: document.getElementById('tgtLang'),
         fontFamily: document.getElementById('fontFamily'),
-        
-        // Кнопки управления
         btnStart: document.getElementById('btnStart'),
         btnRead: document.getElementById('btnRead'),
         btnStop: document.getElementById('btnStop'),
@@ -93,9 +68,27 @@ function initUI() {
     };
 }
 
-// --- Настройка событий ---
+// --- ГЛАВНАЯ ФУНКЦИЯ СОБЫТИЙ ---
 function setupEventListeners() {
-    // Загрузка файла
+    // 1. ЖЕЛЕЗОБЕТОННЫЙ КОД ДЛЯ ПОЛЗУНКА
+    const range = document.getElementById('rateRange');
+    const label = document.getElementById('rateVal');
+
+    if (range && label) {
+        // Сбрасываем старые обработчики (на всякий случай)
+        range.oninput = null; 
+        
+        // Вешаем новый
+        range.addEventListener('input', function(e) {
+            console.log("Ползунок двигается:", this.value); // <-- СМОТРИ В КОНСОЛЬ (F12)
+            label.textContent = this.value;
+        });
+    } else {
+        console.error("ОШИБКА: Не найден rateRange или rateVal в HTML!");
+    }
+    // ------------------------------------
+
+    // Остальные события
     if(ui.fileInput) {
         ui.fileInput.addEventListener('change', async (e) => {
             const f = e.target.files[0];
@@ -108,7 +101,6 @@ function setupEventListeners() {
         });
     }
 
-    // Навигация
     document.getElementById('backToLib').onclick = () => {
         ui.readerView.classList.remove('active');
         ui.libView.classList.add('active');
@@ -120,34 +112,20 @@ function setupEventListeners() {
         document.getElementById('settings-panel').classList.toggle('open');
     };
     
-    // Настройки голоса (показать/скрыть расширенные настройки)
     ui.voiceSrc.onchange = () => {
         const mode = ui.voiceSrc.value;
         document.getElementById('voiceSettings').style.display = (mode === 'edge') ? 'flex' : 'none';
     };
 
-    // --- ВАЖНОЕ ИСПРАВЛЕНИЕ СКОРОСТИ ---
-    if (ui.rateRange && ui.rateVal) {
-        ui.rateRange.oninput = () => {
-            ui.rateVal.innerText = ui.rateRange.value;
-        };
-    } else {
-        console.error("Элементы управления скоростью не найдены в HTML!");
-    }
-    // ------------------------------------
-
-    // Кнопки плеера
     ui.btnStart.onclick = startTranslation;
     ui.btnRead.onclick = startReading;
     ui.btnStop.onclick = stopAllWork;
     if(ui.globalStop) ui.globalStop.onclick = stopAllWork;
     
-    // Главы
     ui.chapSel.onchange = (e) => loadChapter(parseInt(e.target.value));
     document.getElementById('prevBtn').onclick = () => loadChapter(state.currentIdx - 1);
     document.getElementById('nextBtn').onclick = () => loadChapter(state.currentIdx + 1);
 
-    // Вид и шрифты
     ui.layoutBtn.onclick = toggleLayout;
     
     document.getElementById('fontSize').onchange = (e) => 
@@ -167,7 +145,8 @@ function setupEventListeners() {
     updateLayoutUI(); 
 }
 
-// --- Библиотека ---
+// --- Остальная логика (без изменений) ---
+
 async function refreshLibrary() {
     const books = await getAllBooks();
     ui.bookGrid.innerHTML = '';
@@ -195,7 +174,6 @@ async function refreshLibrary() {
     });
 }
 
-// --- Открытие книги ---
 async function openBook(file) {
     ui.libView.classList.remove('active');
     ui.readerView.classList.add('active');
@@ -251,7 +229,6 @@ async function processEpub(buffer) {
 async function loadChapter(idx) {
     stopAllWork();
     if(idx < 0) idx = 0;
-    
     state.currentIdx = idx;
     ui.chapSel.value = idx;
     
@@ -275,7 +252,6 @@ async function loadChapter(idx) {
     }
 }
 
-// --- Рендеринг текста ---
 function renderText(txt) {
     ui.orig.innerHTML = ''; 
     ui.trans.innerHTML = ''; 
@@ -302,18 +278,14 @@ function renderText(txt) {
     ui.trans.appendChild(f2);
 }
 
-// --- Логика перевода и чтения ---
-
 function stopAllWork() {
     state.isWorking = false;
     state.isAudioPlaying = false;
     ui.btnStart.disabled = false;
     ui.btnRead.disabled = false;
     ui.btnStop.disabled = true;
-    
     stopAudio();
     showGlobalStop(false);
-    
     document.querySelectorAll('.playing').forEach(el => el.classList.remove('playing'));
     document.querySelectorAll('.trans-p.reading').forEach(e => e.classList.remove('reading'));
 }
@@ -323,10 +295,8 @@ async function startTranslation() {
     state.isWorking = true;
     ui.btnStart.disabled = true;
     ui.btnStop.disabled = false;
-    
     const els = Array.from(document.querySelectorAll('.trans-p'));
     const idx = getStartIndex();
-    
     for(let i=idx; i<els.length; i++) {
         if(!state.isWorking) break;
         if(!els[i].classList.contains('translated')) {
@@ -343,27 +313,20 @@ async function startReading() {
     state.isWorking = true;
     ui.btnStart.disabled = true;
     ui.btnStop.disabled = false;
-    
     const els = Array.from(document.querySelectorAll('.trans-p'));
     const idx = getStartIndex();
     const lang = ui.tgtLang.value;
-    
     for(let i=idx; i<els.length; i++) {
         if(!state.isWorking) break;
         const el = els[i];
-        
         if(!el.classList.contains('translated')) { await doTrans(el); await sleep(300); }
-        
         document.querySelectorAll('.trans-p.reading').forEach(e => e.classList.remove('reading'));
         el.classList.add('reading');
         el.scrollIntoView({behavior:"smooth", block:"center"});
-        
         const btn = el.querySelector('.para-tts-btn');
         if(btn) btn.classList.add('playing');
-        
         const textToRead = el.innerText.replace('🔊','').trim();
         await playFullAudio(textToRead, lang);
-        
         if(btn) btn.classList.remove('playing');
         await sleep(200);
     }
@@ -389,7 +352,9 @@ async function doTrans(el) {
 async function playFullAudio(text, lang) {
     showGlobalStop(true);
     const provider = ui.voiceSrc.value;
-    const rate = parseFloat(ui.rateRange.value); // Читаем актуальную скорость
+    // Читаем скорость напрямую из DOM, чтобы исключить старые ссылки
+    const rateEl = document.getElementById('rateRange');
+    const rate = rateEl ? parseFloat(rateEl.value) : 1.0;
     
     if (provider === 'google') {
         const chunks = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
@@ -409,11 +374,9 @@ async function playFullAudio(text, lang) {
         else if (lang.startsWith('de')) gender = ui.voiceDe.value;
         await speakDevice(text, lang, gender, provider, rate);
     }
-    
     if(!state.isWorking) showGlobalStop(false);
 }
 
-// --- Обработка кликов (Event Delegation) ---
 async function handleGlobalClicks(e) {
     if(e.target.classList.contains('word')) {
         const word = e.target.dataset.word;
@@ -422,16 +385,12 @@ async function handleGlobalClicks(e) {
     else if(e.target.classList.contains('para-tts-btn')) {
         e.stopPropagation();
         const p = e.target.closest('.trans-p');
-        
         if(!p.classList.contains('translated')) await doTrans(p);
-        
         stopAudio();
         state.isAudioPlaying = true;
         e.target.classList.add('playing');
-        
         const text = p.innerText.replace('🔊', '').trim();
         await playFullAudio(text, ui.tgtLang.value);
-        
         e.target.classList.remove('playing');
         showGlobalStop(false);
         state.isAudioPlaying = false;
@@ -449,7 +408,6 @@ async function handleGlobalClicks(e) {
 async function showTooltip(el, text) {
     document.querySelectorAll('.word.active').forEach(x => x.classList.remove('active'));
     el.classList.add('active');
-    
     const rect = el.getBoundingClientRect();
     ui.tooltip.style.top = (rect.bottom + 5) + 'px';
     let l = rect.left;
@@ -457,18 +415,14 @@ async function showTooltip(el, text) {
     ui.tooltip.style.left = l + 'px';
     ui.tooltip.style.transform = 'none';
     ui.tooltip.style.display = 'block';
-    
     ui.tooltip.innerHTML = `<span class="t-word">${text}</span><span>⏳</span>`;
-    
     try {
         const lang = ui.srcLang.value;
         const [trans, phon] = await Promise.all([
             translateApi(text, lang, ui.tgtLang.value), 
             fetchPhonetics(text, lang)
         ]);
-        
         const targetLang = lang === 'auto' ? 'en' : lang;
-        
         ui.tooltip.innerHTML = `
             <div class="tt-header">
                 <span class="t-word">${text}</span>
@@ -478,7 +432,6 @@ async function showTooltip(el, text) {
             ${phon.cyr ? `<span class="t-rus">"${phon.cyr}"</span>` : ''}
             <span class="t-trans">${trans}</span>
             <button class="close-tip">X</button>`;
-            
         ui.tooltip.querySelector('.t-tts-btn').onclick = async (e) => {
             e.stopPropagation();
             e.target.classList.add('playing');
@@ -488,10 +441,8 @@ async function showTooltip(el, text) {
     } catch(e) { ui.tooltip.innerHTML = "Error"; }
 }
 
-// --- Выделение текста ---
 let selText = "";
 let selTimeout;
-
 function setupSelectionBar() {
     document.addEventListener('selectionchange', () => {
         clearTimeout(selTimeout);
@@ -506,7 +457,6 @@ function setupSelectionBar() {
             }
         }, 300);
     });
-
     if(ui.selBtn) {
         ui.selBtn.onclick = (e) => {
             e.preventDefault();
@@ -525,14 +475,11 @@ async function showPopupPhrase(text) {
     ui.tooltip.style.left='50%';
     ui.tooltip.style.transform='translate(-50%,-50%)';
     ui.tooltip.style.maxWidth='80%';
-    
     ui.tooltip.innerHTML=`<span class="t-word">${text.substring(0,50)}...</span><span>⏳</span>`;
-    
     try {
         const trans = await translateApi(text, ui.srcLang.value, ui.tgtLang.value);
         const safeText = text.replace(/'/g, "\\'").replace(/\n/g, ' ');
         const lang = ui.srcLang.value === 'auto' ? 'en' : ui.srcLang.value;
-
         ui.tooltip.innerHTML = `
             <div class="tt-header">
                 <span class="t-word">${text.substring(0,30)}...</span>
@@ -540,7 +487,6 @@ async function showPopupPhrase(text) {
             </div>
             <span class="t-trans">${trans}</span>
             <button class="close-tip">X</button>`;
-            
          ui.tooltip.querySelector('.t-tts-btn').onclick = async (e) => {
             e.stopPropagation();
             e.target.classList.add('playing');
@@ -550,27 +496,22 @@ async function showPopupPhrase(text) {
     } catch(e) { ui.tooltip.innerHTML="Error"; }
 }
 
-// --- Ресайзер ---
 function setupResizer() {
     let isResizing = false;
-    
     const startResize = (e) => {
         isResizing = true;
         if(e.type === 'touchstart') e.preventDefault();
         ui.resizer.classList.add('active');
     };
-    
     const stopResize = () => {
         isResizing = false;
         ui.resizer.classList.remove('active');
     };
-    
     const doResize = (e) => {
         if(!isResizing) return;
         let cy = e.type.startsWith('touch') ? e.touches[0].clientY : e.clientY;
         let cx = e.type.startsWith('touch') ? e.touches[0].clientX : e.clientX;
         const r = ui.container.getBoundingClientRect();
-        
         if(state.isVertical) {
             let pct = ((cy - r.top) / r.height) * 100;
             if(pct > 10 && pct < 90) {
@@ -585,11 +526,9 @@ function setupResizer() {
             }
         }
     };
-    
     ui.resizer.addEventListener('mousedown', startResize);
     document.addEventListener('mouseup', stopResize);
     document.addEventListener('mousemove', doResize);
-    
     ui.resizer.addEventListener('touchstart', startResize);
     document.addEventListener('touchend', stopResize);
     document.addEventListener('touchmove', doResize);
@@ -618,7 +557,6 @@ function updateLayoutUI() {
     ui.panel2.style.flex = '1';
 }
 
-// --- Утилиты ---
 function getStartIndex() {
     const blocks = Array.from(document.querySelectorAll('.trans-p'));
     const top = ui.trans.scrollTop;
