@@ -1,0 +1,615 @@
+:root {
+    --bg: #1e1e1e;
+    --panel: #252526;
+    --text: #d4d4d4;
+    --accent: #007acc;
+    --border: #3e3e42;
+    --highlight: #2d333b;
+    --success: #4ec9b0;
+    --danger: #f14c4c;
+    --font-size: 18px;
+}
+
+* {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    touch-action: pan-y;
+}
+
+/* --- Menu Bar --- */
+#menu-bar {
+    height: 30px;
+    background: #2d2d30;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-bottom: 1px solid #444;
+    flex-shrink: 0;
+    z-index: 101;
+    position: relative;
+}
+
+#menu-toggle {
+    background: #444;
+    color: #fff;
+    border: 1px solid #555;
+    border-top: none;
+    border-radius: 0 0 10px 10px;
+    padding: 0 30px;
+    height: 24px;
+    line-height: 24px;
+    cursor: pointer;
+    font-size: 20px;
+    margin-top: -1px;
+}
+
+/* --- Settings Panel --- */
+#settings-panel {
+    background: #252526;
+    border-bottom: 1px solid var(--border);
+    overflow: hidden;
+    max-height: 0;
+    transition: max-height 0.3s ease-out;
+    flex-shrink: 0;
+    z-index: 100;
+}
+
+#settings-panel.open {
+    max-height: 350px; /* Чуть увеличил для надежности */
+}
+
+.menu-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Voice Settings */
+.voice-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    padding: 5px 10px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    margin: 5px 0;
+}
+
+.voice-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    color: #aaa;
+}
+
+.voice-select {
+    background: #333;
+    color: white;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 2px 5px;
+    width: 120px;
+    font-size: 12px;
+}
+
+/* Inputs & Buttons */
+select.main-select {
+    background: #3e3e42;
+    color: white;
+    border: 1px solid #555;
+    padding: 0 5px;
+    border-radius: 4px;
+    font-size: 13px;
+    height: 30px;
+}
+
+button {
+    background: #444;
+    color: white;
+    border: none;
+    padding: 0 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+button:disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+button.active-state {
+    background: #fff;
+    color: #000;
+}
+
+.icon-btn {
+    width: 34px;
+    padding: 0;
+    font-size: 16px;
+}
+
+/* --- Progress Bar --- */
+#progressBar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 3px;
+    background: #00ff00;
+    width: 0%;
+    z-index: 10002;
+    transition: width 0.2s;
+}
+
+/* --- Main Layout --- */
+#container {
+    display: flex;
+    flex: 1;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    flex-direction: column;
+}
+
+.panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 50px;
+    min-width: 50px;
+    position: relative;
+}
+
+.panel-head {
+    background: #202020;
+    padding: 0 10px;
+    height: 32px;
+    font-size: 0.75em;
+    color: #888;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #333;
+    flex-shrink: 0;
+    text-transform: uppercase;
+}
+
+.trans-controls {
+    display: flex;
+    gap: 5px;
+}
+
+.btn-tiny {
+    padding: 0 8px;
+    font-size: 11px;
+    height: 22px;
+    border-radius: 4px;
+}
+
+.btn-start { background: var(--success); color: black; font-weight: bold; }
+.btn-read { background: #a371f7; color: white; font-weight: bold; }
+.btn-stop { background: var(--danger); }
+
+/* --- Content Areas --- */
+.content-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 15px;
+    font-size: var(--font-size);
+    line-height: 1.5;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+}
+
+.font-serif .content-area { font-family: 'Georgia', serif; }
+.font-mono .content-area { font-family: monospace; }
+.font-bold .content-area { font-weight: 600; }
+
+/* Resizer */
+.resizer {
+    background: #111;
+    z-index: 50;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-shrink: 0;
+    touch-action: none;
+    min-height: 12px;
+}
+
+.resizer::after {
+    content: "";
+    width: 30px;
+    height: 3px;
+    background: #444;
+    border-radius: 2px;
+}
+
+.resizer.active, .resizer:hover {
+    background: #333;
+}
+
+/* --- Text Paragraphs --- */
+.orig-p {
+    margin-bottom: 1em;
+    text-align: justify;
+    padding: 2px;
+}
+
+.trans-p {
+    margin-bottom: 1em;
+    padding: 6px 24px 6px 6px;
+    border: 1px solid #333;
+    border-radius: 4px;
+    cursor: pointer;
+    position: relative;
+    background: #232323;
+    min-height: 1.5em;
+    text-align: justify;
+}
+
+.trans-p.translated {
+    border-color: transparent;
+    background: transparent;
+    cursor: text;
+    padding: 2px;
+    border-left: 3px solid var(--accent);
+    padding-left: 10px;
+    border-radius: 0;
+    padding-right: 25px;
+}
+
+.trans-p.current {
+    border-color: var(--success);
+    background: rgba(78, 201, 176, 0.1);
+}
+
+.trans-p.reading {
+    background: rgba(163, 113, 247, 0.2);
+    border-left-color: #a371f7;
+}
+
+.trans-p.error {
+    border-color: red;
+}
+
+/* Audio buttons in text */
+.para-tts-btn {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 24px;
+    height: 24px;
+    background: transparent;
+    color: #666;
+    border: none;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.7;
+    z-index: 5;
+}
+
+.para-tts-btn:hover { color: #fff; opacity: 1; }
+.para-tts-btn.playing { color: var(--success); transform: scale(1.1); }
+
+.word {
+    cursor: pointer;
+    border-radius: 2px;
+    user-select: text;
+    -webkit-user-select: text;
+}
+
+.word:active, .word.active {
+    background: var(--accent);
+    color: white;
+}
+
+/* --- Tooltip --- */
+#tooltip {
+    position: absolute;
+    display: none;
+    background: rgba(40, 40, 40, 0.98);
+    border: 1px solid #555;
+    padding: 12px;
+    border-radius: 8px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+    z-index: 9999;
+    max-width: 280px;
+    text-align: center;
+    backdrop-filter: blur(10px);
+}
+
+.tt-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.t-word { font-weight: 700; color: #fff; font-size: 1.2em; }
+
+.t-tts-btn {
+    background: transparent;
+    border: 1px solid #666;
+    color: #ccc;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.t-tts-btn.playing {
+    background: var(--success);
+    color: #000;
+    border-color: var(--success);
+}
+
+.t-ipa { color: #8cf; font-size: 0.9em; display: block; margin-bottom: 2px; }
+.t-rus { color: #aaa; font-style: italic; font-size: 0.9em; display: block; margin-bottom: 8px; }
+.t-trans {
+    color: #ddd;
+    display: block;
+    margin-bottom: 10px;
+    font-size: 1.1em;
+    line-height: 1.3;
+    border-top: 1px solid #555;
+    padding-top: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.close-tip {
+    width: 100%;
+    padding: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    color: #ccc;
+    border-radius: 4px;
+    font-size: 11px;
+}
+
+/* --- Global Stop Button --- */
+#global-stop-btn {
+    position: fixed;
+    bottom: 80px;
+    right: 20px;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: var(--danger);
+    color: white;
+    border: 2px solid #fff;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.6);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    font-size: 24px;
+    cursor: pointer;
+    z-index: 10003;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(241, 76, 76, 0.7); }
+    70% { box-shadow: 0 0 0 10px rgba(241, 76, 76, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(241, 76, 76, 0); }
+}
+
+/* --- Selection Bar --- */
+#selection-bar {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10002;
+    display: none;
+}
+
+#selection-bar.visible {
+    display: block;
+    animation: slideUp 0.2s ease-out;
+}
+
+@keyframes slideUp {
+    from { transform: translate(-50%, 20px); opacity: 0; }
+    to { transform: translate(-50%, 0); opacity: 1; }
+}
+
+.action-btn {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 30px;
+    font-weight: bold;
+    font-size: 14px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#statusLine {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #2d2d30;
+    color: #888;
+    font-size: 10px;
+    padding: 2px 10px;
+    text-align: right;
+    z-index: 9000;
+    pointer-events: none;
+}
+
+#loader {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    z-index: 2000;
+    flex-direction: column;
+}
+
+/* --- Library Views --- */
+#library-view, #reader-view {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    display: none;
+    flex-direction: column;
+}
+
+#library-view.active, #reader-view.active {
+    display: flex;
+}
+
+.lib-header {
+    padding: 15px;
+    background: #2d2d30;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.lib-title {
+    font-size: 20px;
+    font-weight: bold;
+    color: #fff;
+}
+
+.add-book-btn {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-weight: bold;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.lib-grid {
+    flex: 1;
+    overflow-y: auto;
+    padding: 15px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 15px;
+    align-content: start;
+}
+
+.book-card {
+    background: #252526;
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+    cursor: pointer;
+    border: 1px solid #333;
+    transition: transform 0.1s;
+    display: flex;
+    flex-direction: column;
+}
+
+.book-card:active {
+    transform: scale(0.98);
+}
+
+.book-cover {
+    height: 140px;
+    background: #333;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #666;
+    font-size: 30px;
+}
+
+.book-info {
+    padding: 8px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.book-title {
+    font-size: 12px;
+    font-weight: bold;
+    color: #eee;
+    margin-bottom: 4px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.book-fmt {
+    font-size: 10px;
+    color: var(--accent);
+    margin-top: auto;
+    text-transform: uppercase;
+}
+
+.delete-btn {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    border: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    z-index: 10;
+}
