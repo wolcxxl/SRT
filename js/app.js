@@ -1,4 +1,4 @@
-import { initDB, saveBookToDB, getAllBooks, deleteBook } from './db.js';
+import { initDB, saveBookToDB, getAllBooks, deleteBook, updateBookProgress } from './db.js';
 import { translateApi, fetchPhonetics } from './api.js';
 import { loadZip, parseFb2, getFb2ChapterText, parseEpub, getEpubChapterContent, parsePdf } from './parser.js';
 import { speakDevice, playGoogleSingle, stopAudio } from './tts.js';
@@ -6,6 +6,7 @@ import { speakDevice, playGoogleSingle, stopAudio } from './tts.js';
 // --- Глобальное состояние ---
 const state = {
     book: null,
+    currentBookId: null, // ID текущей книги в БД
     fb2Chapters: [],
     epubChapters: [],
     coverUrl: null,
@@ -13,7 +14,9 @@ const state = {
     isWorking: false,
     isAudioPlaying: false,
     isVertical: true,
-    t_sync: null
+    isZonesEnabled: false, // Состояние зон нажатия
+    t_sync: null,
+    saveTimeout: null // Таймер для сохранения прогресса
 };
 
 let ui = {};
@@ -25,14 +28,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupEventListeners();
     setupResizer();
     setupSelectionBar();
-    setupNavigationZones(); // Новая функция зон
-    setupSwipeGestures();   // Новая функция свайпов
+    setupNavigationZones();
+    setupSwipeGestures();
     
     document.body.addEventListener('click', handleGlobalClicks);
-    
-    if (window.speechSynthesis) {
-        window.speechSynthesis.onvoiceschanged = () => {};
-    }
+    if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = () => {};
 });
 
 function initUI() {
@@ -76,22 +76,22 @@ function initUI() {
         btnStop: document.getElementById('btnStop'),
         globalStop: document.getElementById('global-stop-btn'),
         layoutBtn: document.getElementById('layoutBtn'),
+        zoneToggle: document.getElementById('zoneToggle'), // Новая кнопка
         
-        // Навигационные зоны
         zoneLeft: document.getElementById('nav-zone-left'),
         zoneRight: document.getElementById('nav-zone-right')
     };
 }
 
 function setupEventListeners() {
-    // 1. Ползунок скорости
-    if (ui.rateRange && ui.rateVal) {
-        ui.rateRange.oninput = null;
-        ui.rateRange.addEventListener('input', function() { ui.rateVal.innerText = this.value; });
-        ui.rateVal.innerText = ui.rateRange.value;
+    const range = document.getElementById('rateRange');
+    const label = document.getElementById('rateVal');
+    if (range && label) {
+        range.oninput = null;
+        range.addEventListener('input', function() { label.innerText = this.value; });
+        label.innerText = range.value;
     }
 
-    // 2. Файлы
     if(ui.fileInput) {
         ui.fileInput.addEventListener('change', async (e) => {
             const f = e.target.files[0];
@@ -104,12 +104,13 @@ function setupEventListeners() {
         });
     }
 
-    // 3. Навигация и UI
     document.getElementById('backToLib').onclick = () => {
         ui.readerView.classList.remove('active');
         ui.libView.classList.add('active');
         document.getElementById('settings-panel').classList.remove('open');
         stopAllWork();
+        // Сохраняем прогресс при выходе
+        saveProgressNow();
     };
 
     document.getElementById('menu-toggle').onclick = () => {
@@ -121,96 +122,52 @@ function setupEventListeners() {
         document.getElementById('voiceSettings').style.display = (mode === 'edge') ? 'flex' : 'none';
     };
 
-    // 4. Управление главами (теперь они в панели настроек)
     ui.chapSel.onchange = (e) => loadChapter(parseInt(e.target.value));
     document.getElementById('prevBtn').onclick = () => loadChapter(state.currentIdx - 1);
     document.getElementById('nextBtn').onclick = () => loadChapter(state.currentIdx + 1);
 
-    // 5. Плеер
     ui.btnStart.onclick = startTranslation;
     ui.btnRead.onclick = startReading;
     ui.btnStop.onclick = stopAllWork;
     if(ui.globalStop) ui.globalStop.onclick = stopAllWork;
 
-    // 6. Вид
     ui.layoutBtn.onclick = toggleLayout;
+    ui.fontFamily.onchange = () => {
+        document.body.className = document.body.className.replace(/font-\w+/g, '');
+        if(ui.fontFamily.value !== 'ui') document.body.classList.add(`font-${ui.fontFamily.value}`);
+    };
     document.getElementById('fontSize').onchange = (e) => document.documentElement.style.setProperty('--font-size', e.target.value);
     document.getElementById('boldToggle').onclick = (e) => {
         document.body.classList.toggle('font-bold');
         e.target.classList.toggle('active-state');
     };
-    ui.fontFamily.onchange = () => {
-        document.body.className = document.body.className.replace(/font-\w+/g, '');
-        if(ui.fontFamily.value !== 'ui') document.body.classList.add(`font-${ui.fontFamily.value}`);
-    };
-    
-    // 7. Модальное окно
+
+    // --- КНОПКА ВКЛ/ВЫКЛ ЗОН ---
+    if (ui.zoneToggle) {
+        ui.zoneToggle.onclick = () => {
+            state.isZonesEnabled = !state.isZonesEnabled;
+            updateZonesState();
+        };
+    }
+
     if(ui.modalClose) ui.modalClose.onclick = closeImageModal;
     if(ui.imageModal) ui.imageModal.onclick = (e) => { if(e.target === ui.imageModal) closeImageModal(); };
 
     setupSync();
     updateLayoutUI(); 
+    updateZonesState(); // Инит состояния зон
 }
 
-// --- Logic: Navigation Zones (Tap to Scroll/Page) ---
-function setupNavigationZones() {
-    // Вспомогательная функция прокрутки
-    const scrollPage = (direction) => { // 1 = down, -1 = up
-        const scrollAmount = window.innerHeight * 0.8; // Листаем на 80% высоты экрана
-        const el = ui.orig; // Скроллим оригинал (синхронизация подтянет перевод)
-        
-        // Проверяем, конец ли это страницы
-        if (direction === 1 && el.scrollTop + el.clientHeight >= el.scrollHeight - 50) {
-            // Конец -> след глава
-            loadChapter(state.currentIdx + 1);
-        } else if (direction === -1 && el.scrollTop <= 0) {
-            // Начало -> пред глава
-            loadChapter(state.currentIdx - 1);
-        } else {
-            // Просто скролл
-            el.scrollBy({ top: scrollAmount * direction, behavior: 'smooth' });
-        }
-    };
-
-    if(ui.zoneRight) {
-        ui.zoneRight.onclick = (e) => { e.stopPropagation(); scrollPage(1); };
-    }
-    if(ui.zoneLeft) {
-        ui.zoneLeft.onclick = (e) => { e.stopPropagation(); scrollPage(-1); };
-    }
-}
-
-// --- Logic: Swipe Gestures ---
-function setupSwipeGestures() {
-    let touchStartX = 0;
-    let touchStartY = 0;
-    
-    ui.container.addEventListener('touchstart', (e) => {
-        touchStartX = e.changedTouches[0].screenX;
-        touchStartY = e.changedTouches[0].screenY;
-    }, {passive: true});
-    
-    ui.container.addEventListener('touchend', (e) => {
-        const touchEndX = e.changedTouches[0].screenX;
-        const touchEndY = e.changedTouches[0].screenY;
-        
-        handleSwipe(touchStartX, touchStartY, touchEndX, touchEndY);
-    }, {passive: true});
-}
-
-function handleSwipe(sx, sy, ex, ey) {
-    const dx = ex - sx;
-    const dy = ey - sy;
-    
-    // Если свайп скорее горизонтальный, чем вертикальный, и достаточно длинный
-    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 100) {
-        if (dx < 0) {
-            // Свайп влево (как будто листаем вперед) -> След. глава
-            loadChapter(state.currentIdx + 1);
-        } else {
-            // Свайп вправо (листаем назад) -> Пред. глава
-            loadChapter(state.currentIdx - 1);
-        }
+// Управление зонами
+function updateZonesState() {
+    if (state.isZonesEnabled) {
+        ui.zoneToggle.classList.add('active-state');
+        ui.zoneLeft.classList.add('active');
+        ui.zoneRight.classList.add('active');
+    } else {
+        ui.zoneToggle.classList.remove('active-state');
+        ui.zoneLeft.classList.remove('active');
+        ui.zoneRight.classList.remove('active');
     }
 }
 
@@ -222,44 +179,56 @@ async function refreshLibrary() {
         ui.bookGrid.innerHTML = '<div style="color:#666;width:100%;text-align:center;padding-top:20px">Библиотека пуста</div>';
         return;
     }
+    // Сортировка: недавно открытые первыми
+    books.sort((a, b) => (b.lastRead || b.date) - (a.lastRead || a.date));
+
     books.forEach(book => {
         const card = document.createElement('div'); card.className = 'book-card';
         card.innerHTML = `<button class="delete-btn" data-id="${book.id}">×</button><div class="book-cover">📖</div><div class="book-info"><div class="book-title">${book.name}</div><div class="book-fmt">${book.type}</div></div>`;
         card.querySelector('.delete-btn').onclick = async (e) => { e.stopPropagation(); if(confirm("Удалить?")) { await deleteBook(book.id); refreshLibrary(); }};
-        card.onclick = () => openBook(book.file);
+        // Передаем ВЕСЬ объект книги, чтобы знать ID и прогресс
+        card.onclick = () => openBook(book); 
         ui.bookGrid.appendChild(card);
     });
 }
 
-async function openBook(file) {
+// Теперь openBook принимает объект книги из БД
+async function openBook(bookData) {
     ui.libView.classList.remove('active');
     ui.readerView.classList.add('active');
+    
+    state.currentBookId = bookData.id; // Запоминаем ID
+    const file = bookData.file;
+    const progress = bookData.progress || { chapter: 0, scroll: 0 }; // Грузим прогресс
+
     setStatus(`Загрузка...`);
     showLoad();
     try {
         const n = file.name.toLowerCase();
-        if(n.endsWith('.fb2')) processFb2Data(await file.text());
-        else if(n.endsWith('.epub')) await processEpubData(await file.arrayBuffer());
+        if(n.endsWith('.fb2')) processFb2Data(await file.text(), progress);
+        else if(n.endsWith('.epub')) await processEpubData(await file.arrayBuffer(), progress);
         else if(n.endsWith('.pdf')) { renderText(await parsePdf(await file.arrayBuffer())); }
         else if(n.endsWith('.zip')) {
              const res = await loadZip(file);
-             if(res.type === 'epub') await processEpubData(res.data);
-             else if(res.type === 'fb2') processFb2Data(res.data);
+             if(res.type === 'epub') await processEpubData(res.data, progress);
+             else if(res.type === 'fb2') processFb2Data(res.data, progress);
              else renderText(res.data);
         } else renderText(await file.text());
+        
         setStatus(file.name);
     } catch(err) { alert(err.message); setStatus("Ошибка"); } finally { hideLoad(); }
 }
 
-function processFb2Data(text) {
+function processFb2Data(text, progress) {
     state.fb2Chapters = parseFb2(text);
     state.epubChapters = [];
     ui.chapSel.innerHTML = '';
     state.fb2Chapters.forEach((c, i) => ui.chapSel.add(new Option(c.title, i)));
-    loadChapter(0);
+    // Грузим сохраненную главу
+    loadChapter(progress.chapter || 0, progress.scroll || 0);
 }
 
-async function processEpubData(buffer) {
+async function processEpubData(buffer, progress) {
     state.fb2Chapters = [];
     try {
         const data = await parseEpub(buffer);
@@ -269,13 +238,14 @@ async function processEpubData(buffer) {
         setStatus(data.title);
         ui.chapSel.innerHTML = '';
         state.epubChapters.forEach((c, i) => ui.chapSel.add(new Option(c.title, i)));
-        loadChapter(0);
+        // Грузим сохраненную главу
+        loadChapter(progress.chapter || 0, progress.scroll || 0);
     } catch (e) { throw new Error(e.message); }
 }
 
-async function loadChapter(idx) {
+// loadChapter теперь принимает scrollTop
+async function loadChapter(idx, scrollTop = 0) {
     stopAllWork();
-    // Проверка границ
     let max = 0;
     if (state.epubChapters.length > 0) max = state.epubChapters.length - 1;
     else if (state.fb2Chapters.length > 0) max = state.fb2Chapters.length - 1;
@@ -286,6 +256,9 @@ async function loadChapter(idx) {
     state.currentIdx = idx;
     ui.chapSel.value = idx;
     
+    // Сохраняем прогресс (глава изменилась)
+    saveProgress(idx, 0);
+
     showLoad();
     try {
         let text = "";
@@ -299,15 +272,40 @@ async function loadChapter(idx) {
         }
         renderText(text);
         
-        // Анимация появления
+        // Анимация
         ui.orig.classList.remove('page-anim');
-        void ui.orig.offsetWidth; // trigger reflow
+        void ui.orig.offsetWidth; 
         ui.orig.classList.add('page-anim');
+
+        // Восстановление скролла (с небольшой задержкой, чтобы контент отрисовался)
+        if (scrollTop > 0) {
+            setTimeout(() => {
+                ui.orig.scrollTop = scrollTop;
+            }, 50);
+        }
         
     } catch(e) { renderText("Ошибка: " + e.message); } finally { hideLoad(); }
 }
 
-// --- Render & Modal ---
+// --- Saving Progress ---
+function saveProgress(chapterIdx, scrollTop) {
+    // Debounce (сохраняем не чаще чем раз в 1 сек, чтобы не мучить базу)
+    clearTimeout(state.saveTimeout);
+    state.saveTimeout = setTimeout(() => {
+        saveProgressNow(chapterIdx, scrollTop);
+    }, 1000);
+}
+
+function saveProgressNow(chapterIdx, scrollTop) {
+    if (state.currentBookId) {
+        // Если параметры не переданы, берем текущие
+        const ch = (chapterIdx !== undefined) ? chapterIdx : state.currentIdx;
+        const scr = (scrollTop !== undefined) ? scrollTop : ui.orig.scrollTop;
+        updateBookProgress(state.currentBookId, ch, scr);
+    }
+}
+
+// --- Render & Handlers ---
 function renderText(txt) {
     ui.orig.innerHTML = ''; ui.trans.innerHTML = ''; ui.orig.scrollTop = 0;
     const arr = txt.split(/\n\s*\n/).filter(x => x.trim().length > 0);
@@ -341,8 +339,6 @@ function openImageModal(src) {
     if(ui.modalImg && ui.imageModal) {
         ui.modalImg.src = src;
         ui.imageModal.classList.add('visible');
-    } else {
-        console.error("Modal elements not found");
     }
 }
 function closeImageModal() {
@@ -351,16 +347,13 @@ function closeImageModal() {
 }
 
 async function handleGlobalClicks(e) {
-    // 1. Image Click
     if (e.target.closest('.image-stub')) {
         const stub = e.target.closest('.image-stub');
         if(stub.dataset.src) openImageModal(stub.dataset.src);
     }
-    // 2. Word Click
     else if(e.target.classList.contains('word')) {
         showTooltip(e.target, e.target.dataset.word);
     }
-    // 3. TTS Click
     else if(e.target.classList.contains('para-tts-btn')) {
         e.stopPropagation();
         const p = e.target.closest('.trans-p');
@@ -372,11 +365,9 @@ async function handleGlobalClicks(e) {
         e.target.classList.remove('playing');
         showGlobalStop(false); state.isAudioPlaying = false;
     }
-    // 4. Translate Click
     else if(e.target.closest('.trans-p') && !e.target.classList.contains('para-tts-btn') && !e.target.closest('.image-stub')) {
         doTrans(e.target.closest('.trans-p'));
     }
-    // 5. Close Tooltip
     else if(e.target.classList.contains('close-tip') || (!e.target.closest('#tooltip') && ui.tooltip.style.display === 'block') && e.target.id !== 'translateSelBtn') {
         ui.tooltip.style.display = 'none';
         document.querySelectorAll('.word.active').forEach(x => x.classList.remove('active'));
@@ -384,6 +375,37 @@ async function handleGlobalClicks(e) {
 }
 
 // --- Utils ---
+function setupNavigationZones() {
+    const scrollPage = (direction) => {
+        const scrollAmount = window.innerHeight * 0.8;
+        const el = ui.orig;
+        if (direction === 1 && el.scrollTop + el.clientHeight >= el.scrollHeight - 50) {
+            loadChapter(state.currentIdx + 1);
+        } else if (direction === -1 && el.scrollTop <= 0) {
+            loadChapter(state.currentIdx - 1);
+        } else {
+            el.scrollBy({ top: scrollAmount * direction, behavior: 'smooth' });
+        }
+    };
+    if(ui.zoneRight) ui.zoneRight.onclick = (e) => { e.stopPropagation(); scrollPage(1); };
+    if(ui.zoneLeft) ui.zoneLeft.onclick = (e) => { e.stopPropagation(); scrollPage(-1); };
+}
+
+function setupSwipeGestures() {
+    let touchStartX = 0, touchStartY = 0;
+    ui.container.addEventListener('touchstart', (e) => {
+        touchStartX = e.changedTouches[0].screenX;
+        touchStartY = e.changedTouches[0].screenY;
+    }, {passive: true});
+    ui.container.addEventListener('touchend', (e) => {
+        const dx = e.changedTouches[0].screenX - touchStartX;
+        const dy = e.changedTouches[0].screenY - touchStartY;
+        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 100) {
+            if (dx < 0) loadChapter(state.currentIdx + 1); else loadChapter(state.currentIdx - 1);
+        }
+    }, {passive: true});
+}
+
 function stopAllWork() {
     state.isWorking = false; state.isAudioPlaying = false;
     ui.btnStart.disabled = false; ui.btnRead.disabled = false; ui.btnStop.disabled = true;
@@ -524,7 +546,15 @@ function getStartIndex() {
     return idx === -1 ? 0 : idx;
 }
 function setupSync() {
-    ui.orig.onscroll = () => { if(state.t_sync) return; state.t_sync = requestAnimationFrame(() => { syncScroll(ui.orig, ui.trans); state.t_sync = null; }); };
+    // Сохраняем прогресс при скролле (с дебаунсом внутри saveProgress)
+    ui.orig.onscroll = () => { 
+        if(state.t_sync) return; 
+        state.t_sync = requestAnimationFrame(() => { 
+            syncScroll(ui.orig, ui.trans); 
+            state.t_sync = null; 
+            saveProgress(); // <-- СОХРАНЕНИЕ
+        }); 
+    };
     ui.trans.onscroll = () => { if(state.t_sync) return; state.t_sync = requestAnimationFrame(() => { syncScroll(ui.trans, ui.orig); state.t_sync = null; }); };
 }
 const syncScroll = (a, b) => { if(a.scrollHeight - a.clientHeight > 0) b.scrollTop = (a.scrollTop / (a.scrollHeight - a.clientHeight)) * (b.scrollHeight - b.clientHeight); };
