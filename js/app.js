@@ -1,33 +1,37 @@
 import { initDB, saveBookToDB, getAllBooks, deleteBook } from './db.js';
 import { translateApi, fetchPhonetics } from './api.js';
-import { loadZip, parseFb2, getFb2ChapterText, parsePdf } from './parser.js';
+// Обратите внимание на расширенный список импорта из parser.js
+import { loadZip, parseFb2, getFb2ChapterText, parseEpub, getEpubChapterContent, parsePdf } from './parser.js';
 import { speakDevice, playGoogleSingle, stopAudio } from './tts.js';
 
 // --- Глобальное состояние ---
 const state = {
-    book: null,
-    fb2Chapters: [],
-    spine: null,
-    currentIdx: 0,
-    isWorking: false,
+    book: null,          // Объект книги (ePub)
+    fb2Chapters: [],     // Главы FB2
+    epubChapters: [],    // Главы EPUB (новое)
+    currentIdx: 0,       // Индекс текущей главы
+    isWorking: false,    // Флаг активного процесса (чтение/перевод)
     isAudioPlaying: false,
-    isVertical: true,
-    t_sync: null
+    isVertical: true,    // Вертикальный/Горизонтальный режим
+    t_sync: null         // Таймер синхронизации скролла
 };
 
-// --- UI Кэш (заполняется при старте) ---
+// --- Кэш UI элементов ---
 let ui = {};
 
+// --- Инициализация при загрузке страницы ---
 document.addEventListener('DOMContentLoaded', async () => {
     initUI();
     await initDB();
     refreshLibrary();
-    setupEventListeners(); // <-- Здесь магия
+    setupEventListeners();
     setupResizer();
     setupSelectionBar();
+    
+    // Глобальный обработчик кликов
     document.body.addEventListener('click', handleGlobalClicks);
     
-    // Фикс для голосов
+    // Исправление для Chrome (загрузка голосов)
     if (window.speechSynthesis) {
         window.speechSynthesis.onvoiceschanged = () => {};
     }
@@ -41,26 +45,30 @@ function initUI() {
         fileInput: document.getElementById('libFileInput'),
         status: document.getElementById('statusLine'),
         loader: document.getElementById('loader'),
+        
         container: document.getElementById('container'),
         panel1: document.getElementById('panel1'),
         panel2: document.getElementById('panel2'),
         orig: document.getElementById('origPanel'),
         trans: document.getElementById('transPanel'),
         resizer: document.getElementById('resizer'),
+        
         chapSel: document.getElementById('chapterSelect'),
         tooltip: document.getElementById('tooltip'),
         selBar: document.getElementById('selection-bar'),
         selBtn: document.getElementById('translateSelBtn'),
+        
         voiceSrc: document.getElementById('voiceSource'),
         voiceRu: document.getElementById('voiceRu'),
         voiceEn: document.getElementById('voiceEn'),
         voiceDe: document.getElementById('voiceDe'),
-        rateVal: document.getElementById('rateVal'), 
-        // Слайдер берем напрямую в events, но оставим тут для чтения скорости
-        rateRange: document.getElementById('rateRange'), 
+        rateRange: document.getElementById('rateRange'),
+        rateVal: document.getElementById('rateVal'),
+        
         srcLang: document.getElementById('srcLang'),
         tgtLang: document.getElementById('tgtLang'),
         fontFamily: document.getElementById('fontFamily'),
+        
         btnStart: document.getElementById('btnStart'),
         btnRead: document.getElementById('btnRead'),
         btnStop: document.getElementById('btnStop'),
@@ -69,27 +77,20 @@ function initUI() {
     };
 }
 
-// --- ГЛАВНАЯ ФУНКЦИЯ СОБЫТИЙ ---
+// --- Настройка событий ---
 function setupEventListeners() {
-    // 1. ЖЕЛЕЗОБЕТОННЫЙ КОД ДЛЯ ПОЛЗУНКА
+    // 1. Исправление ползунка скорости (прямая привязка)
     const range = document.getElementById('rateRange');
     const label = document.getElementById('rateVal');
-
     if (range && label) {
-        // Сбрасываем старые обработчики (на всякий случай)
-        range.oninput = null; 
-        
-        // Вешаем новый
-        range.addEventListener('input', function(e) {
-            console.log("Ползунок двигается:", this.value); // <-- СМОТРИ В КОНСОЛЬ (F12)
-            label.textContent = this.value;
+        range.oninput = null; // Сброс
+        range.addEventListener('input', function() {
+            label.innerText = this.value;
         });
-    } else {
-        console.error("ОШИБКА: Не найден rateRange или rateVal в HTML!");
+        label.innerText = range.value; // Инит значения
     }
-    // ------------------------------------
 
-    // Остальные события
+    // 2. Загрузка файла
     if(ui.fileInput) {
         ui.fileInput.addEventListener('change', async (e) => {
             const f = e.target.files[0];
@@ -102,6 +103,7 @@ function setupEventListeners() {
         });
     }
 
+    // 3. Навигация
     document.getElementById('backToLib').onclick = () => {
         ui.readerView.classList.remove('active');
         ui.libView.classList.add('active');
@@ -118,15 +120,18 @@ function setupEventListeners() {
         document.getElementById('voiceSettings').style.display = (mode === 'edge') ? 'flex' : 'none';
     };
 
+    // 4. Управление плеером
     ui.btnStart.onclick = startTranslation;
     ui.btnRead.onclick = startReading;
     ui.btnStop.onclick = stopAllWork;
     if(ui.globalStop) ui.globalStop.onclick = stopAllWork;
     
+    // 5. Главы
     ui.chapSel.onchange = (e) => loadChapter(parseInt(e.target.value));
     document.getElementById('prevBtn').onclick = () => loadChapter(state.currentIdx - 1);
     document.getElementById('nextBtn').onclick = () => loadChapter(state.currentIdx + 1);
 
+    // 6. Вид
     ui.layoutBtn.onclick = toggleLayout;
     
     document.getElementById('fontSize').onchange = (e) => 
@@ -146,8 +151,7 @@ function setupEventListeners() {
     updateLayoutUI(); 
 }
 
-// --- Остальная логика (без изменений) ---
-
+// --- Библиотека ---
 async function refreshLibrary() {
     const books = await getAllBooks();
     ui.bookGrid.innerHTML = '';
@@ -175,6 +179,7 @@ async function refreshLibrary() {
     });
 }
 
+// --- Открытие книги ---
 async function openBook(file) {
     ui.libView.classList.remove('active');
     ui.readerView.classList.add('active');
@@ -189,14 +194,15 @@ async function openBook(file) {
              const text = await file.text();
              processFb2Data(text);
         } else if(n.endsWith('.epub')) {
-             await processEpub(await file.arrayBuffer());
+             // Использование нового парсера EPUB
+             await processEpubData(await file.arrayBuffer());
         } else if(n.endsWith('.pdf')) {
              document.getElementById('controls').style.display = 'none';
              const text = await parsePdf(await file.arrayBuffer());
              renderText(text);
         } else if(n.endsWith('.zip')) {
              const res = await loadZip(file);
-             if(res.type === 'epub') await processEpub(res.data);
+             if(res.type === 'epub') await processEpubData(res.data);
              else if(res.type === 'fb2') processFb2Data(res.data);
              else renderText(res.data);
         } else {
@@ -211,82 +217,136 @@ async function openBook(file) {
     }
 }
 
+// Обработка FB2
 function processFb2Data(text) {
     state.fb2Chapters = parseFb2(text);
+    state.epubChapters = []; // Очистка
     ui.chapSel.innerHTML = '';
     state.fb2Chapters.forEach((c, i) => ui.chapSel.add(new Option(c.title, i)));
     loadChapter(0);
 }
 
-async function processEpub(buffer) {
-    state.book = ePub(buffer);
-    await state.book.ready;
-    state.spine = state.book.spine.spineItems;
-    ui.chapSel.innerHTML = '';
-    state.spine.forEach((_, i) => ui.chapSel.add(new Option(`${i+1}`, i)));
-    loadChapter(0);
+// Обработка EPUB (Новая функция)
+async function processEpubData(buffer) {
+    state.fb2Chapters = []; // Очистка
+    try {
+        const data = await parseEpub(buffer);
+        state.book = data.book;
+        state.epubChapters = data.chapters;
+        
+        setStatus(data.title);
+        
+        ui.chapSel.innerHTML = '';
+        state.epubChapters.forEach((c, i) => {
+            // Используем реальные названия глав
+            ui.chapSel.add(new Option(c.title || `Глава ${i+1}`, i));
+        });
+        
+        loadChapter(0);
+    } catch (e) {
+        throw new Error("EPUB Error: " + e.message);
+    }
 }
 
+// --- Загрузка главы ---
 async function loadChapter(idx) {
     stopAllWork();
     if(idx < 0) idx = 0;
+    
     state.currentIdx = idx;
     ui.chapSel.value = idx;
     
-    if(state.spine && idx >= state.spine.length) return;
+    // Проверка границ
+    if(state.epubChapters.length > 0 && idx >= state.epubChapters.length) return;
     if(state.fb2Chapters.length > 0 && idx >= state.fb2Chapters.length) return;
 
-    if(state.fb2Chapters.length > 0) {
-        renderText(getFb2ChapterText(state.fb2Chapters[idx].content));
-    } else if(state.spine) {
-        showLoad();
-        try {
-            const doc = await state.spine[idx].load(state.book.load.bind(state.book));
-            let h = doc.body?.innerHTML || new XMLSerializer().serializeToString(doc);
-            let t = h.replace(/<(br|div|p|h\d)[^>]*>/gi, '\n')
-                     .replace(/<[^>]+>/g, '')
-                     .replace(/&nbsp;/g,' ')
-                     .replace(/\n\s*\n/g, '\n\n');
-            renderText(t);
-        } catch(e) { console.error(e); }
+    showLoad();
+    try {
+        let text = "";
+        
+        if(state.fb2Chapters.length > 0) {
+            // FB2
+            const chap = state.fb2Chapters[idx];
+            text = getFb2ChapterText(chap.content, chap.images);
+        } else if(state.epubChapters.length > 0) {
+            // EPUB (с поддержкой картинок и структуры)
+            const chap = state.epubChapters[idx];
+            text = await getEpubChapterContent(state.book, chap);
+        }
+
+        renderText(text);
+    } catch(e) { 
+        console.error(e);
+        renderText("Ошибка загрузки главы: " + e.message);
+    } finally {
         hideLoad();
     }
 }
 
+// --- Рендеринг текста (с поддержкой картинок) ---
 function renderText(txt) {
     ui.orig.innerHTML = ''; 
     ui.trans.innerHTML = ''; 
     ui.orig.scrollTop = 0;
     
-    const arr = txt.split(/\n\s*\n/).filter(x => x.trim().length > 1);
+    // Разбиваем по двойным переносам
+    const arr = txt.split(/\n\s*\n/).filter(x => x.trim().length > 0);
+    
     const f1 = document.createDocumentFragment();
     const f2 = document.createDocumentFragment();
     
     arr.forEach(s => {
-        const d1 = document.createElement('div'); 
-        d1.className = 'orig-p'; 
-        d1.innerHTML = s.replace(/([a-zA-Zа-яА-Я0-9\u00C0-\u00FF'-]+)/g, '<span class="word" data-word="$1">$1</span>'); 
-        f1.appendChild(d1);
+        // Проверяем на наличие маркера картинки [IMG:...]
+        const imgMatch = s.match(/^\[IMG:(.+?)\]$/);
         
-        const d2 = document.createElement('div'); 
-        d2.className = 'trans-p'; 
-        d2.dataset.text = s;
-        d2.innerHTML = `<button class="para-tts-btn">🔊</button>${s}`;
-        f2.appendChild(d2);
+        if (imgMatch) {
+            // === КАРТИНКА ===
+            const imgSrc = imgMatch[1];
+            
+            // В оригинал
+            const d1 = document.createElement('div');
+            d1.className = 'orig-p image-block';
+            d1.innerHTML = `<img src="${imgSrc}" style="max-width:100%; height:auto; display:block; margin:10px auto; border-radius:4px;">`;
+            f1.appendChild(d1);
+            
+            // В перевод (копия картинки, без перевода)
+            const d2 = document.createElement('div');
+            d2.className = 'trans-p image-block translated';
+            d2.innerHTML = `<img src="${imgSrc}" style="max-width:100%; height:auto; display:block; margin:10px auto;">`;
+            f2.appendChild(d2);
+            
+        } else {
+            // === ТЕКСТ ===
+            // Оригинал
+            const d1 = document.createElement('div'); 
+            d1.className = 'orig-p'; 
+            d1.innerHTML = s.replace(/([a-zA-Zа-яА-Я0-9\u00C0-\u00FF'-]+)/g, '<span class="word" data-word="$1">$1</span>'); 
+            f1.appendChild(d1);
+            
+            // Перевод
+            const d2 = document.createElement('div'); 
+            d2.className = 'trans-p'; 
+            d2.dataset.text = s;
+            d2.innerHTML = `<button class="para-tts-btn">🔊</button>${s}`;
+            f2.appendChild(d2);
+        }
     });
     
     ui.orig.appendChild(f1);
     ui.trans.appendChild(f2);
 }
 
+// --- Управление процессами (Стоп, Чтение, Перевод) ---
 function stopAllWork() {
     state.isWorking = false;
     state.isAudioPlaying = false;
     ui.btnStart.disabled = false;
     ui.btnRead.disabled = false;
     ui.btnStop.disabled = true;
+    
     stopAudio();
     showGlobalStop(false);
+    
     document.querySelectorAll('.playing').forEach(el => el.classList.remove('playing'));
     document.querySelectorAll('.trans-p.reading').forEach(e => e.classList.remove('reading'));
 }
@@ -296,8 +356,10 @@ async function startTranslation() {
     state.isWorking = true;
     ui.btnStart.disabled = true;
     ui.btnStop.disabled = false;
-    const els = Array.from(document.querySelectorAll('.trans-p'));
+    
+    const els = Array.from(document.querySelectorAll('.trans-p:not(.image-block)'));
     const idx = getStartIndex();
+    
     for(let i=idx; i<els.length; i++) {
         if(!state.isWorking) break;
         if(!els[i].classList.contains('translated')) {
@@ -314,20 +376,27 @@ async function startReading() {
     state.isWorking = true;
     ui.btnStart.disabled = true;
     ui.btnStop.disabled = false;
-    const els = Array.from(document.querySelectorAll('.trans-p'));
+    
+    const els = Array.from(document.querySelectorAll('.trans-p:not(.image-block)'));
     const idx = getStartIndex();
     const lang = ui.tgtLang.value;
+    
     for(let i=idx; i<els.length; i++) {
         if(!state.isWorking) break;
         const el = els[i];
+        
         if(!el.classList.contains('translated')) { await doTrans(el); await sleep(300); }
+        
         document.querySelectorAll('.trans-p.reading').forEach(e => e.classList.remove('reading'));
         el.classList.add('reading');
         el.scrollIntoView({behavior:"smooth", block:"center"});
+        
         const btn = el.querySelector('.para-tts-btn');
         if(btn) btn.classList.add('playing');
+        
         const textToRead = el.innerText.replace('🔊','').trim();
         await playFullAudio(textToRead, lang);
+        
         if(btn) btn.classList.remove('playing');
         await sleep(200);
     }
@@ -350,10 +419,11 @@ async function doTrans(el) {
     }
 }
 
+// --- Аудио ---
 async function playFullAudio(text, lang) {
     showGlobalStop(true);
     const provider = ui.voiceSrc.value;
-    // Читаем скорость напрямую из DOM, чтобы исключить старые ссылки
+    // Берем скорость напрямую из DOM для надежности
     const rateEl = document.getElementById('rateRange');
     const rate = rateEl ? parseFloat(rateEl.value) : 1.0;
     
@@ -375,40 +445,52 @@ async function playFullAudio(text, lang) {
         else if (lang.startsWith('de')) gender = ui.voiceDe.value;
         await speakDevice(text, lang, gender, provider, rate);
     }
+    
     if(!state.isWorking) showGlobalStop(false);
 }
 
+// --- Глобальные клики (Event Delegation) ---
 async function handleGlobalClicks(e) {
+    // Клик по слову
     if(e.target.classList.contains('word')) {
         const word = e.target.dataset.word;
         showTooltip(e.target, word);
     }
+    // Клик по кнопке озвучки параграфа
     else if(e.target.classList.contains('para-tts-btn')) {
         e.stopPropagation();
         const p = e.target.closest('.trans-p');
+        
         if(!p.classList.contains('translated')) await doTrans(p);
+        
         stopAudio();
         state.isAudioPlaying = true;
         e.target.classList.add('playing');
+        
         const text = p.innerText.replace('🔊', '').trim();
         await playFullAudio(text, ui.tgtLang.value);
+        
         e.target.classList.remove('playing');
         showGlobalStop(false);
         state.isAudioPlaying = false;
     }
-    else if(e.target.closest('.trans-p') && !e.target.classList.contains('para-tts-btn')) {
+    // Клик по параграфу (просто перевод)
+    else if(e.target.closest('.trans-p') && !e.target.classList.contains('para-tts-btn') && !e.target.closest('.image-block')) {
         const p = e.target.closest('.trans-p');
         doTrans(p);
     }
+    // Закрытие тултипа
     else if(e.target.classList.contains('close-tip') || (!e.target.closest('#tooltip') && ui.tooltip.style.display === 'block') && e.target.id !== 'translateSelBtn') {
         ui.tooltip.style.display = 'none';
         document.querySelectorAll('.word.active').forEach(x => x.classList.remove('active'));
     }
 }
 
+// --- Тултип (Словарь) ---
 async function showTooltip(el, text) {
     document.querySelectorAll('.word.active').forEach(x => x.classList.remove('active'));
     el.classList.add('active');
+    
     const rect = el.getBoundingClientRect();
     ui.tooltip.style.top = (rect.bottom + 5) + 'px';
     let l = rect.left;
@@ -416,14 +498,18 @@ async function showTooltip(el, text) {
     ui.tooltip.style.left = l + 'px';
     ui.tooltip.style.transform = 'none';
     ui.tooltip.style.display = 'block';
+    
     ui.tooltip.innerHTML = `<span class="t-word">${text}</span><span>⏳</span>`;
+    
     try {
         const lang = ui.srcLang.value;
         const [trans, phon] = await Promise.all([
             translateApi(text, lang, ui.tgtLang.value), 
             fetchPhonetics(text, lang)
         ]);
+        
         const targetLang = lang === 'auto' ? 'en' : lang;
+        
         ui.tooltip.innerHTML = `
             <div class="tt-header">
                 <span class="t-word">${text}</span>
@@ -433,6 +519,7 @@ async function showTooltip(el, text) {
             ${phon.cyr ? `<span class="t-rus">"${phon.cyr}"</span>` : ''}
             <span class="t-trans">${trans}</span>
             <button class="close-tip">X</button>`;
+            
         ui.tooltip.querySelector('.t-tts-btn').onclick = async (e) => {
             e.stopPropagation();
             e.target.classList.add('playing');
@@ -442,6 +529,7 @@ async function showTooltip(el, text) {
     } catch(e) { ui.tooltip.innerHTML = "Error"; }
 }
 
+// --- Выделение текста ---
 let selText = "";
 let selTimeout;
 function setupSelectionBar() {
@@ -450,6 +538,7 @@ function setupSelectionBar() {
         selTimeout = setTimeout(() => {
             const sel = window.getSelection();
             const txt = sel.toString().trim();
+            // Показываем кнопку только если выделен текст в оригинале
             if(txt && txt.length > 1 && ui.orig.contains(sel.anchorNode)) {
                 selText = txt;
                 ui.selBar.classList.add('visible');
@@ -458,6 +547,7 @@ function setupSelectionBar() {
             }
         }, 300);
     });
+
     if(ui.selBtn) {
         ui.selBtn.onclick = (e) => {
             e.preventDefault();
@@ -476,11 +566,14 @@ async function showPopupPhrase(text) {
     ui.tooltip.style.left='50%';
     ui.tooltip.style.transform='translate(-50%,-50%)';
     ui.tooltip.style.maxWidth='80%';
+    
     ui.tooltip.innerHTML=`<span class="t-word">${text.substring(0,50)}...</span><span>⏳</span>`;
+    
     try {
         const trans = await translateApi(text, ui.srcLang.value, ui.tgtLang.value);
         const safeText = text.replace(/'/g, "\\'").replace(/\n/g, ' ');
         const lang = ui.srcLang.value === 'auto' ? 'en' : ui.srcLang.value;
+
         ui.tooltip.innerHTML = `
             <div class="tt-header">
                 <span class="t-word">${text.substring(0,30)}...</span>
@@ -488,6 +581,7 @@ async function showPopupPhrase(text) {
             </div>
             <span class="t-trans">${trans}</span>
             <button class="close-tip">X</button>`;
+            
          ui.tooltip.querySelector('.t-tts-btn').onclick = async (e) => {
             e.stopPropagation();
             e.target.classList.add('playing');
@@ -497,22 +591,28 @@ async function showPopupPhrase(text) {
     } catch(e) { ui.tooltip.innerHTML="Error"; }
 }
 
+// --- Ресайзер ---
 function setupResizer() {
     let isResizing = false;
+    
     const startResize = (e) => {
         isResizing = true;
         if(e.type === 'touchstart') e.preventDefault();
         ui.resizer.classList.add('active');
     };
+    
     const stopResize = () => {
         isResizing = false;
         ui.resizer.classList.remove('active');
     };
+    
     const doResize = (e) => {
         if(!isResizing) return;
+        
         let cy = e.type.startsWith('touch') ? e.touches[0].clientY : e.clientY;
         let cx = e.type.startsWith('touch') ? e.touches[0].clientX : e.clientX;
         const r = ui.container.getBoundingClientRect();
+        
         if(state.isVertical) {
             let pct = ((cy - r.top) / r.height) * 100;
             if(pct > 10 && pct < 90) {
@@ -527,9 +627,11 @@ function setupResizer() {
             }
         }
     };
+    
     ui.resizer.addEventListener('mousedown', startResize);
     document.addEventListener('mouseup', stopResize);
     document.addEventListener('mousemove', doResize);
+    
     ui.resizer.addEventListener('touchstart', startResize);
     document.addEventListener('touchend', stopResize);
     document.addEventListener('touchmove', doResize);
@@ -558,8 +660,10 @@ function updateLayoutUI() {
     ui.panel2.style.flex = '1';
 }
 
+// --- Утилиты ---
 function getStartIndex() {
-    const blocks = Array.from(document.querySelectorAll('.trans-p'));
+    // Ищем первый видимый параграф (игнорируем картинки)
+    const blocks = Array.from(document.querySelectorAll('.trans-p:not(.image-block)'));
     const top = ui.trans.scrollTop;
     let idx = blocks.findIndex(b => b.offsetTop + b.clientHeight > top);
     return idx === -1 ? 0 : idx;
