@@ -1,6 +1,3 @@
-// js/parser.js
-
-// Настройка PDF.js (если используется)
 if(window.pdfjsLib) {
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 }
@@ -9,7 +6,6 @@ export async function loadZip(f) {
     const z = new JSZip();
     const c = await z.loadAsync(f);
     let t = null, n = "";
-    // Ищем файлы книг
     for (let k in c.files) {
         if (k.match(/\.(fb2|epub|txt)$/i) && !c.files[k].dir) {
             t = c.files[k];
@@ -30,7 +26,6 @@ export function parseFb2(txt) {
     const body = doc.querySelector("body");
     if (!body) throw new Error("Неверный формат FB2");
     
-    // Пытаемся найти картинки (binary)
     const binaries = {};
     doc.querySelectorAll("binary").forEach(bin => {
         const id = bin.getAttribute("id");
@@ -46,8 +41,8 @@ export function parseFb2(txt) {
     if (secs.length > 0) {
         secs.forEach((s, i) => {
             let t = s.querySelector("title")?.textContent || `Глава ${i + 1}`;
-            t = t.replace(/[\n\t]/g, ' ').trim(); // Чистим заголовок
-            if (t.length > 40) t = t.substring(0, 40) + "...";
+            t = t.replace(/[\n\t]/g, ' ').trim();
+            if (t.length > 50) t = t.substring(0, 50) + "...";
             chapters.push({ title: t, content: s, images: binaries });
         });
     } else {
@@ -57,128 +52,115 @@ export function parseFb2(txt) {
 }
 
 export function getFb2ChapterText(section, images = {}) {
-    // Рекурсивно обходим узлы, чтобы сохранить картинки
     let result = [];
-    
     function traverse(node) {
-        if (node.nodeType === 3) { // Текст
+        if (node.nodeType === 3) { 
             const text = node.nodeValue.trim();
             if (text) result.push(text);
-        } else if (node.nodeType === 1) { // Элемент
+        } else if (node.nodeType === 1) { 
             if (node.tagName === 'image') {
                 const href = node.getAttribute('l:href') || node.getAttribute('xlink:href');
                 if (href && images[href]) {
-                    // Вставляем маркер картинки, который потом обработаем в app.js
                     result.push(`[IMG:${images[href]}]`);
                 }
             } else {
-                // Если это блочный элемент, добавляем перенос
                 if (['p', 'v', 'subtitle', 'title'].includes(node.tagName)) {
                     node.childNodes.forEach(traverse);
-                    result.push('\n\n'); // Разделитель параграфов
+                    result.push('\n\n'); 
                 } else {
                     node.childNodes.forEach(traverse);
                 }
             }
         }
     }
-    
     traverse(section);
     return result.join(" ").replace(/\n\s+\n/g, '\n\n').trim();
 }
 
-// --- EPUB Parser (Исправленный) ---
+// --- EPUB Parser (Исправленный v2) ---
 export async function parseEpub(buffer) {
     const book = ePub(buffer);
     await book.ready;
     
-    // Получаем метаданные (название, автор)
     const meta = book.package.metadata;
     const title = meta.title || "Без названия";
-
-    // Строим навигацию (TOC)
-    const nav = await book.loaded.navigation;
-    let chapters = [];
     
-    // Функция для выпрямления дерева глав (flatten)
-    const flatten = (items) => {
+    // 1. Извлекаем обложку (если есть)
+    let coverUrl = null;
+    try {
+        coverUrl = await book.coverUrl();
+    } catch(e) { console.warn("Cover not found"); }
+
+    // 2. Строим список глав на основе SPINE (гарантирует, что файл существует)
+    // Оглавление (TOC) используем только для красивых названий
+    const chapters = [];
+    
+    // Создаем карту оглавления для быстрого поиска названий
+    const navItems = await book.loaded.navigation; // Загружаем навигацию
+    const tocMap = {};
+    
+    const mapToc = (items) => {
         items.forEach(item => {
-            // Ищем spine item по href
-            const spineItem = book.spine.get(item.href);
-            if (spineItem) {
-                chapters.push({
-                    title: item.label.trim(),
-                    href: item.href,
-                    index: spineItem.index
-                });
-            }
-            if (item.subitems && item.subitems.length > 0) {
-                flatten(item.subitems);
-            }
+            // Очищаем href от якорей (file.html#part1 -> file.html)
+            const cleanHref = item.href.split('#')[0]; 
+            tocMap[cleanHref] = item.label.trim();
+            if (item.subitems) mapToc(item.subitems);
         });
     };
+    if (navItems && navItems.toc) mapToc(navItems.toc);
 
-    if (nav.toc && nav.toc.length > 0) {
-        flatten(nav.toc);
-    } else {
-        // Если TOC пустой, берем просто список файлов (Spine)
-        book.spine.each((item) => {
-            chapters.push({
-                title: `Глава ${item.index + 1}`,
-                href: item.href,
-                index: item.index
-            });
+    // Перебираем физические файлы книги
+    book.spine.each((item) => {
+        // Пропускаем служебные файлы, если нужно (обычно не требуется)
+        const label = tocMap[item.href] || `Глава ${item.index + 1}`;
+        
+        chapters.push({
+            title: label,
+            href: item.href,
+            index: item.index, // Важно: используем индекс spine для загрузки
+            id: item.id
         });
-    }
+    });
 
-    // Удаляем дубликаты по индексу (иногда TOC ссылается на одно и то же)
-    chapters = chapters.filter((v, i, a) => a.findIndex(t => t.index === v.index) === i);
-    // Сортируем по порядку в книге
-    chapters.sort((a, b) => a.index - b.index);
-
-    return { book, chapters, title };
+    return { book, chapters, title, coverUrl };
 }
 
 export async function getEpubChapterContent(book, chapter) {
-    const doc = await book.load(chapter.href);
+    // Загружаем по spine элементу, это надежнее чем по href
+    const doc = await book.load(chapter.href); 
     
-    // 1. Исправляем картинки
-    // epub.js не резолвит пути к картинкам автоматически при .load(),
-    // нам нужно достать их из архива и превратить в Blob URL
-    const images = doc.querySelectorAll('img');
+    // Исправляем картинки
+    const images = doc.querySelectorAll('img, image');
     const promises = Array.from(images).map(async (img) => {
-        const src = img.getAttribute('src');
+        const src = img.getAttribute('src') || img.getAttribute('xlink:href');
         if (src) {
-            // Получаем абсолютный путь внутри epub
             const path = book.path.resolve(src, chapter.href);
             try {
-                // Просим epub.js создать blob url
                 const url = await book.archive.createUrl(path);
                 img.setAttribute('src', url);
                 img.setAttribute('data-processed', 'true');
             } catch (e) {
-                console.warn("Не удалось загрузить картинку:", path);
+                console.warn("Img err:", path);
             }
         }
     });
     
     await Promise.all(promises);
 
-    // 2. Преобразуем DOM в текст с маркерами картинок
     let output = [];
-    
     function traverse(node) {
-        if (node.nodeType === 3) { // Текст
+        if (node.nodeType === 3) {
             let t = node.nodeValue.replace(/\s+/g, ' ');
             if (t.trim()) output.push(t);
-        } else if (node.nodeType === 1) { // Элемент
-            if (node.tagName.toLowerCase() === 'img') {
-                const src = node.getAttribute('src');
+        } else if (node.nodeType === 1) {
+            const tag = node.tagName.toLowerCase();
+            if (tag === 'img' || tag === 'image') {
+                const src = node.getAttribute('src') || node.getAttribute('xlink:href');
                 if (src && node.getAttribute('data-processed')) {
                     output.push(`\n\n[IMG:${src}]\n\n`);
                 }
-            } else if (['p', 'div', 'h1', 'h2', 'h3', 'h4', 'br', 'li'].includes(node.tagName.toLowerCase())) {
-                output.push('\n\n'); // Начало блока
+            } else if (['p', 'div', 'h1', 'h2', 'h3', 'h4', 'br', 'li'].includes(tag)) {
+                output.push('\n\n');
                 node.childNodes.forEach(traverse);
             } else {
                 node.childNodes.forEach(traverse);
@@ -187,12 +169,9 @@ export async function getEpubChapterContent(book, chapter) {
     }
 
     traverse(doc.body);
-    
-    // Чистим результат от лишних пробелов и пустых строк
     return output.join("").replace(/\n\s*\n/g, '\n\n').trim();
 }
 
-// --- PDF Parser ---
 export async function parsePdf(buffer) {
     const pdf = await pdfjsLib.getDocument(buffer).promise;
     let t = "";
