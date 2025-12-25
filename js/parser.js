@@ -77,7 +77,7 @@ export function getFb2ChapterText(section, images = {}) {
     return result.join(" ").replace(/\n\s+\n/g, '\n\n').trim();
 }
 
-// --- EPUB Parser (Исправленный v2) ---
+// --- EPUB Parser (С улучшенным поиском обложки) ---
 export async function parseEpub(buffer) {
     const book = ePub(buffer);
     await book.ready;
@@ -85,23 +85,35 @@ export async function parseEpub(buffer) {
     const meta = book.package.metadata;
     const title = meta.title || "Без названия";
     
-    // 1. Извлекаем обложку (если есть)
+    // --- ПОИСК ОБЛОЖКИ (Улучшенный) ---
     let coverUrl = null;
-    try {
-        coverUrl = await book.coverUrl();
-    } catch(e) { console.warn("Cover not found"); }
-
-    // 2. Строим список глав на основе SPINE (гарантирует, что файл существует)
-    // Оглавление (TOC) используем только для красивых названий
-    const chapters = [];
     
-    // Создаем карту оглавления для быстрого поиска названий
-    const navItems = await book.loaded.navigation; // Загружаем навигацию
+    // 1. Пробуем стандартный метод
+    try { coverUrl = await book.coverUrl(); } catch(e) {}
+
+    // 2. Если не вышло, ищем вручную в манифесте
+    if (!coverUrl && book.package.manifest) {
+        for (let key in book.package.manifest) {
+            const item = book.package.manifest[key];
+            // Ищем картинки, у которых в ID или пути есть слово 'cover'
+            if (item.mediaType && item.mediaType.startsWith('image/') && 
+               (item.id.toLowerCase().includes('cover') || item.href.toLowerCase().includes('cover'))) {
+                try {
+                    // Генерируем Blob URL для найденной картинки
+                    coverUrl = await book.archive.createUrl(item.href);
+                    break; // Нашли - выходим
+                } catch(e) {}
+            }
+        }
+    }
+
+    // --- ОГЛАВЛЕНИЕ ---
+    const chapters = [];
+    const navItems = await book.loaded.navigation; 
     const tocMap = {};
     
     const mapToc = (items) => {
         items.forEach(item => {
-            // Очищаем href от якорей (file.html#part1 -> file.html)
             const cleanHref = item.href.split('#')[0]; 
             tocMap[cleanHref] = item.label.trim();
             if (item.subitems) mapToc(item.subitems);
@@ -109,15 +121,12 @@ export async function parseEpub(buffer) {
     };
     if (navItems && navItems.toc) mapToc(navItems.toc);
 
-    // Перебираем физические файлы книги
     book.spine.each((item) => {
-        // Пропускаем служебные файлы, если нужно (обычно не требуется)
         const label = tocMap[item.href] || `Глава ${item.index + 1}`;
-        
         chapters.push({
             title: label,
             href: item.href,
-            index: item.index, // Важно: используем индекс spine для загрузки
+            index: item.index,
             id: item.id
         });
     });
@@ -126,10 +135,8 @@ export async function parseEpub(buffer) {
 }
 
 export async function getEpubChapterContent(book, chapter) {
-    // Загружаем по spine элементу, это надежнее чем по href
     const doc = await book.load(chapter.href); 
     
-    // Исправляем картинки
     const images = doc.querySelectorAll('img, image');
     const promises = Array.from(images).map(async (img) => {
         const src = img.getAttribute('src') || img.getAttribute('xlink:href');
