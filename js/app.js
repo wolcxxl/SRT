@@ -55,6 +55,7 @@ function initUI() {
         voiceRu: document.getElementById('voiceRu'),
         voiceEn: document.getElementById('voiceEn'),
         voiceDe: document.getElementById('voiceDe'),
+        rateVal: document.getElementById('rateVal'), 
         // Слайдер берем напрямую в events, но оставим тут для чтения скорости
         rateRange: document.getElementById('rateRange'), 
         srcLang: document.getElementById('srcLang'),
