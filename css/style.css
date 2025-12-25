@@ -27,19 +27,67 @@ body {
     touch-action: pan-y;
 }
 
-/* --- Menu Bar --- */
+/* --- Menu Bar (Обновленный) --- */
 #menu-bar {
-    height: 30px;
+    height: 44px; /* Чуть выше, чтобы пальцем было удобно */
     background: #2d2d30;
     display: flex;
-    justify-content: center;
     align-items: center;
     border-bottom: 1px solid #444;
     flex-shrink: 0;
     z-index: 101;
     position: relative;
+    padding: 0 10px; /* Отступы по краям */
+    gap: 15px; /* Расстояние между кнопкой меню и главами */
+}
+/* Кнопка меню теперь обычная кнопка слева */
+#menu-toggle {
+    background: #444;
+    color: #fff;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 0 15px;
+    height: 32px;
+    line-height: 30px;
+    cursor: pointer;
+    font-size: 18px;
+    margin: 0;
 }
 
+#menu-toggle:active {
+    background: #555;
+}
+
+/* Группа навигации в верхней панели */
+.top-nav-group {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex: 1; /* Занимает все свободное место */
+    max-width: 600px; /* Чтобы не растягивалось слишком сильно на ПК */
+}
+/* Элементы внутри навигации */
+#chapterSelect {
+    flex: 1; /* Растягивается между стрелками */
+    background: #3e3e42;
+    color: white;
+    border: 1px solid #555;
+    border-radius: 4px;
+    height: 32px;
+    padding: 0 8px;
+    font-size: 13px;
+    width: 100%; /* Fix для flex контейнера */
+}
+
+#menu-bar .icon-btn {
+    width: 36px;
+    height: 32px;
+    font-size: 16px;
+    background: #444;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 0;
+}
 #menu-toggle {
     background: #444;
     color: #fff;
