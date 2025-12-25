@@ -31,18 +31,18 @@
 
 <div id="reader-view">
     <div id="menu-bar">
-        <button id="menu-toggle" title="Настройки">☰ Меню</button>
+        <button id="menu-toggle" title="Настройки">☰</button>
+        
+        <div class="top-nav-group">
+            <button id="prevBtn" class="icon-btn" title="Пред. глава">←</button>
+            <select id="chapterSelect"></select>
+            <button id="nextBtn" class="icon-btn" title="След. глава">→</button>
+        </div>
     </div>
 
     <div id="settings-panel">
         <div style="padding: 15px;">
             
-            <div class="menu-row" style="background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; margin-bottom: 10px;">
-                <button id="prevBtn" class="icon-btn" style="width: 40px" title="Пред. глава">←</button>
-                <select id="chapterSelect" style="flex: 1; margin: 0 10px; height: 34px; background: #333; color: white; border: 1px solid #555; border-radius: 4px;"></select>
-                <button id="nextBtn" class="icon-btn" style="width: 40px" title="След. глава">→</button>
-            </div>
-
             <div class="menu-row">
                 <button id="backToLib" class="icon-btn" style="width:auto; padding:0 15px; font-size: 14px;">⬅ В библиотеку</button>
                 <div style="display:flex; gap:10px; align-items:center;">
