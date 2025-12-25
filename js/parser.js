@@ -77,33 +77,39 @@ export function getFb2ChapterText(section, images = {}) {
     return result.join(" ").replace(/\n\s+\n/g, '\n\n').trim();
 }
 
-// --- EPUB Parser (С улучшенным поиском обложки) ---
+// --- EPUB Parser (Исправленный) ---
 export async function parseEpub(buffer) {
     const book = ePub(buffer);
     await book.ready;
     
     const meta = book.package.metadata;
     const title = meta.title || "Без названия";
-    
-    // --- ПОИСК ОБЛОЖКИ (Улучшенный) ---
     let coverUrl = null;
     
-    // 1. Пробуем стандартный метод
+    // 1. Пытаемся найти обложку стандартными методами
     try { coverUrl = await book.coverUrl(); } catch(e) {}
 
-    // 2. Если не вышло, ищем вручную в манифесте
-    if (!coverUrl && book.package.manifest) {
-        for (let key in book.package.manifest) {
-            const item = book.package.manifest[key];
-            // Ищем картинки, у которых в ID или пути есть слово 'cover'
-            if (item.mediaType && item.mediaType.startsWith('image/') && 
-               (item.id.toLowerCase().includes('cover') || item.href.toLowerCase().includes('cover'))) {
-                try {
-                    // Генерируем Blob URL для найденной картинки
-                    coverUrl = await book.archive.createUrl(item.href);
-                    break; // Нашли - выходим
-                } catch(e) {}
+    // 2. Если нет обложки, ищем первую картинку в первой главе (Ваше правило)
+    if (!coverUrl) {
+        try {
+            // Берем первый файл из Spine (обычно это начало книги или обложка)
+            const firstItem = book.spine.get(0);
+            if (firstItem) {
+                // Загружаем его DOM
+                const doc = await firstItem.load(book.load.bind(book));
+                // Ищем первую картинку
+                const img = doc.querySelector('img, image');
+                if (img) {
+                    const src = img.getAttribute('src') || img.getAttribute('xlink:href');
+                    if (src) {
+                        // Превращаем относительный путь в Blob URL
+                        const path = book.path.resolve(src, firstItem.href);
+                        coverUrl = await book.archive.createUrl(path);
+                    }
+                }
             }
+        } catch(e) {
+            console.warn("Не удалось извлечь обложку из первой страницы", e);
         }
     }
 
@@ -112,6 +118,7 @@ export async function parseEpub(buffer) {
     const navItems = await book.loaded.navigation; 
     const tocMap = {};
     
+    // Создаем карту: путь к файлу -> название главы
     const mapToc = (items) => {
         items.forEach(item => {
             const cleanHref = item.href.split('#')[0]; 
@@ -121,11 +128,12 @@ export async function parseEpub(buffer) {
     };
     if (navItems && navItems.toc) mapToc(navItems.toc);
 
+    // Строим список глав строго по SPINE (чтобы файлы точно существовали)
     book.spine.each((item) => {
         const label = tocMap[item.href] || `Глава ${item.index + 1}`;
         chapters.push({
             title: label,
-            href: item.href,
+            href: item.href,  // Это верный путь внутри EPUB
             index: item.index,
             id: item.id
         });
@@ -135,13 +143,19 @@ export async function parseEpub(buffer) {
 }
 
 export async function getEpubChapterContent(book, chapter) {
-    const doc = await book.load(chapter.href); 
+    // Используем spine.get(), чтобы epub.js сам нашел правильный путь
+    const spineItem = book.spine.get(chapter.index);
+    if (!spineItem) throw new Error("Chapter not found in spine");
+
+    const doc = await spineItem.load(book.load.bind(book));
     
+    // Обработка картинок
     const images = doc.querySelectorAll('img, image');
     const promises = Array.from(images).map(async (img) => {
         const src = img.getAttribute('src') || img.getAttribute('xlink:href');
         if (src) {
-            const path = book.path.resolve(src, chapter.href);
+            // Разрешаем путь относительно текущей главы
+            const path = book.path.resolve(src, spineItem.href);
             try {
                 const url = await book.archive.createUrl(path);
                 img.setAttribute('src', url);
@@ -154,6 +168,7 @@ export async function getEpubChapterContent(book, chapter) {
     
     await Promise.all(promises);
 
+    // Конвертация в текст с маркерами
     let output = [];
     function traverse(node) {
         if (node.nodeType === 3) {
@@ -161,6 +176,9 @@ export async function getEpubChapterContent(book, chapter) {
             if (t.trim()) output.push(t);
         } else if (node.nodeType === 1) {
             const tag = node.tagName.toLowerCase();
+            // Игнорируем скрипты и стили
+            if (tag === 'script' || tag === 'style') return;
+
             if (tag === 'img' || tag === 'image') {
                 const src = node.getAttribute('src') || node.getAttribute('xlink:href');
                 if (src && node.getAttribute('data-processed')) {
