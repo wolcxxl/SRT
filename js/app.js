@@ -16,70 +16,97 @@ const state = {
 };
 
 // --- Ссылки на UI элементы ---
-const ui = {
-    libView: document.getElementById('library-view'),
-    readerView: document.getElementById('reader-view'),
-    bookGrid: document.getElementById('bookGrid'),
-    fileInput: document.getElementById('libFileInput'),
-    status: document.getElementById('statusLine'),
-    loader: document.getElementById('loader'),
-    
-    // Панели
-    container: document.getElementById('container'),
-    panel1: document.getElementById('panel1'),
-    panel2: document.getElementById('panel2'),
-    orig: document.getElementById('origPanel'),
-    trans: document.getElementById('transPanel'),
-    resizer: document.getElementById('resizer'),
-    
-    // Навигация и меню
-    chapSel: document.getElementById('chapterSelect'),
-    tooltip: document.getElementById('tooltip'),
-    selBar: document.getElementById('selection-bar'),
-    selBtn: document.getElementById('translateSelBtn'),
-    
-    // Настройки
-    voiceSrc: document.getElementById('voiceSource'),
-    voiceRu: document.getElementById('voiceRu'),
-    voiceEn: document.getElementById('voiceEn'),
-    voiceDe: document.getElementById('voiceDe'),
-    rateRange: document.getElementById('rateRange'),
-    srcLang: document.getElementById('srcLang'),
-    tgtLang: document.getElementById('tgtLang'),
-    fontFamily: document.getElementById('fontFamily'),
-    
-    // Кнопки управления
-    btnStart: document.getElementById('btnStart'),
-    btnRead: document.getElementById('btnRead'),
-    btnStop: document.getElementById('btnStop'),
-    globalStop: document.getElementById('global-stop-btn'),
-    layoutBtn: document.getElementById('layoutBtn')
-};
+// ВАЖНО: Мы получаем элементы только когда DOM загружен, поэтому объект пустой, 
+// а заполним мы его в функции initUI()
+let ui = {};
 
 // --- Инициализация ---
 document.addEventListener('DOMContentLoaded', async () => {
+    // 1. Сначала находим все элементы (чтобы избежать null ошибок)
+    initUI();
+    
+    // 2. Инициализируем базу данных
     await initDB();
     refreshLibrary();
+    
+    // 3. Вешаем обработчики событий
     setupEventListeners();
     setupResizer();
     setupSelectionBar();
     
-    // Глобальный клик (делегирование)
+    // 4. Глобальный клик (делегирование)
     document.body.addEventListener('click', handleGlobalClicks);
+
+    // 5. Исправление для Chrome/Edge (голоса могут не подгрузиться сразу)
+    if (window.speechSynthesis) {
+        window.speechSynthesis.onvoiceschanged = () => {
+            console.log("Голоса обновлены"); 
+            // Можно добавить логику обновления списков, если нужно
+        };
+    }
 });
+
+function initUI() {
+    ui = {
+        libView: document.getElementById('library-view'),
+        readerView: document.getElementById('reader-view'),
+        bookGrid: document.getElementById('bookGrid'),
+        fileInput: document.getElementById('libFileInput'),
+        status: document.getElementById('statusLine'),
+        loader: document.getElementById('loader'),
+        
+        // Панели
+        container: document.getElementById('container'),
+        panel1: document.getElementById('panel1'),
+        panel2: document.getElementById('panel2'),
+        orig: document.getElementById('origPanel'),
+        trans: document.getElementById('transPanel'),
+        resizer: document.getElementById('resizer'),
+        
+        // Навигация и меню
+        chapSel: document.getElementById('chapterSelect'),
+        tooltip: document.getElementById('tooltip'),
+        selBar: document.getElementById('selection-bar'),
+        selBtn: document.getElementById('translateSelBtn'),
+        
+        // Настройки
+        voiceSrc: document.getElementById('voiceSource'),
+        voiceRu: document.getElementById('voiceRu'),
+        voiceEn: document.getElementById('voiceEn'),
+        voiceDe: document.getElementById('voiceDe'),
+        
+        // --- ИСПРАВЛЕНИЕ СКОРОСТИ ---
+        rateRange: document.getElementById('rateRange'),
+        rateVal: document.getElementById('rateVal'),
+        // -----------------------------
+        
+        srcLang: document.getElementById('srcLang'),
+        tgtLang: document.getElementById('tgtLang'),
+        fontFamily: document.getElementById('fontFamily'),
+        
+        // Кнопки управления
+        btnStart: document.getElementById('btnStart'),
+        btnRead: document.getElementById('btnRead'),
+        btnStop: document.getElementById('btnStop'),
+        globalStop: document.getElementById('global-stop-btn'),
+        layoutBtn: document.getElementById('layoutBtn')
+    };
+}
 
 // --- Настройка событий ---
 function setupEventListeners() {
     // Загрузка файла
-    ui.fileInput.addEventListener('change', async (e) => {
-        const f = e.target.files[0];
-        if(!f) return;
-        showLoad();
-        await saveBookToDB(f, { title: f.name });
-        await refreshLibrary();
-        hideLoad();
-        ui.fileInput.value = null;
-    });
+    if(ui.fileInput) {
+        ui.fileInput.addEventListener('change', async (e) => {
+            const f = e.target.files[0];
+            if(!f) return;
+            showLoad();
+            await saveBookToDB(f, { title: f.name });
+            await refreshLibrary();
+            hideLoad();
+            ui.fileInput.value = null;
+        });
+    }
 
     // Навигация
     document.getElementById('backToLib').onclick = () => {
@@ -93,22 +120,27 @@ function setupEventListeners() {
         document.getElementById('settings-panel').classList.toggle('open');
     };
     
-    // Настройки голоса
+    // Настройки голоса (показать/скрыть расширенные настройки)
     ui.voiceSrc.onchange = () => {
         const mode = ui.voiceSrc.value;
         document.getElementById('voiceSettings').style.display = (mode === 'edge') ? 'flex' : 'none';
     };
 
-    // --- ВСТАВИТЬ СЮДА ---
-    // Обновление цифры скорости
-    ui.rateRange.oninput = () => ui.rateVal.innerText = ui.rateRange.value;
-    // ---------------------
-    
+    // --- ВАЖНОЕ ИСПРАВЛЕНИЕ СКОРОСТИ ---
+    if (ui.rateRange && ui.rateVal) {
+        ui.rateRange.oninput = () => {
+            ui.rateVal.innerText = ui.rateRange.value;
+        };
+    } else {
+        console.error("Элементы управления скоростью не найдены в HTML!");
+    }
+    // ------------------------------------
+
     // Кнопки плеера
     ui.btnStart.onclick = startTranslation;
     ui.btnRead.onclick = startReading;
     ui.btnStop.onclick = stopAllWork;
-    ui.globalStop.onclick = stopAllWork;
+    if(ui.globalStop) ui.globalStop.onclick = stopAllWork;
     
     // Главы
     ui.chapSel.onchange = (e) => loadChapter(parseInt(e.target.value));
@@ -132,7 +164,7 @@ function setupEventListeners() {
     };
 
     setupSync();
-    updateLayoutUI(); // Применить начальный лейаут
+    updateLayoutUI(); 
 }
 
 // --- Библиотека ---
@@ -180,7 +212,7 @@ async function openBook(file) {
         } else if(n.endsWith('.epub')) {
              await processEpub(await file.arrayBuffer());
         } else if(n.endsWith('.pdf')) {
-             document.getElementById('controls').style.display = 'none'; // PDF без глав
+             document.getElementById('controls').style.display = 'none';
              const text = await parsePdf(await file.arrayBuffer());
              renderText(text);
         } else if(n.endsWith('.zip')) {
@@ -223,7 +255,6 @@ async function loadChapter(idx) {
     state.currentIdx = idx;
     ui.chapSel.value = idx;
     
-    // Проверка границ для кнопок
     if(state.spine && idx >= state.spine.length) return;
     if(state.fb2Chapters.length > 0 && idx >= state.fb2Chapters.length) return;
 
@@ -233,7 +264,6 @@ async function loadChapter(idx) {
         showLoad();
         try {
             const doc = await state.spine[idx].load(state.book.load.bind(state.book));
-            // Чистим HTML epub-а
             let h = doc.body?.innerHTML || new XMLSerializer().serializeToString(doc);
             let t = h.replace(/<(br|div|p|h\d)[^>]*>/gi, '\n')
                      .replace(/<[^>]+>/g, '')
@@ -256,13 +286,11 @@ function renderText(txt) {
     const f2 = document.createDocumentFragment();
     
     arr.forEach(s => {
-        // Оригинал (слова кликабельны)
         const d1 = document.createElement('div'); 
         d1.className = 'orig-p'; 
         d1.innerHTML = s.replace(/([a-zA-Zа-яА-Я0-9\u00C0-\u00FF'-]+)/g, '<span class="word" data-word="$1">$1</span>'); 
         f1.appendChild(d1);
         
-        // Перевод (контейнер)
         const d2 = document.createElement('div'); 
         d2.className = 'trans-p'; 
         d2.dataset.text = s;
@@ -304,7 +332,6 @@ async function startTranslation() {
         if(!els[i].classList.contains('translated')) {
             await doTrans(els[i]);
             els[i].scrollIntoView({behavior:"smooth", block:"center"});
-            // Небольшая задержка для визуального комфорта
             await sleep(400);
         }
     }
@@ -325,19 +352,15 @@ async function startReading() {
         if(!state.isWorking) break;
         const el = els[i];
         
-        // Если не переведено - переводим
         if(!el.classList.contains('translated')) { await doTrans(el); await sleep(300); }
         
-        // Подсветка
         document.querySelectorAll('.trans-p.reading').forEach(e => e.classList.remove('reading'));
         el.classList.add('reading');
         el.scrollIntoView({behavior:"smooth", block:"center"});
         
-        // Иконка звука
         const btn = el.querySelector('.para-tts-btn');
         if(btn) btn.classList.add('playing');
         
-        // Озвучка
         const textToRead = el.innerText.replace('🔊','').trim();
         await playFullAudio(textToRead, lang);
         
@@ -363,20 +386,16 @@ async function doTrans(el) {
     }
 }
 
-// --- Аудио обертка ---
 async function playFullAudio(text, lang) {
     showGlobalStop(true);
     const provider = ui.voiceSrc.value;
-    const rate = parseFloat(ui.rateRange.value);
+    const rate = parseFloat(ui.rateRange.value); // Читаем актуальную скорость
     
     if (provider === 'google') {
-        // Разбивка на части для Google (limit 200 chars)
         const chunks = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
         for (let chunk of chunks) {
              if(!state.isWorking && !state.isAudioPlaying) break;
              chunk = chunk.trim(); if(!chunk) continue;
-             
-             // Если кусок все равно длинный, рубим жестко
              if (chunk.length > 180) {
                  const sub = chunk.match(/.{1,180}(?:\s|$)/g);
                  if(sub) { for(let s of sub) await playGoogleSingle(s, lang, rate); continue; }
@@ -384,7 +403,6 @@ async function playFullAudio(text, lang) {
              await playGoogleSingle(chunk, lang, rate);
         }
     } else {
-        // Native / Edge
         let gender = 'f';
         if (lang.startsWith('ru')) gender = ui.voiceRu.value;
         else if (lang.startsWith('en')) gender = ui.voiceEn.value;
@@ -397,21 +415,17 @@ async function playFullAudio(text, lang) {
 
 // --- Обработка кликов (Event Delegation) ---
 async function handleGlobalClicks(e) {
-    // 1. Клик по слову (в оригинале)
     if(e.target.classList.contains('word')) {
         const word = e.target.dataset.word;
         showTooltip(e.target, word);
     }
-    // 2. Клик по кнопке озвучки параграфа
     else if(e.target.classList.contains('para-tts-btn')) {
         e.stopPropagation();
         const p = e.target.closest('.trans-p');
         
-        // Сначала переводим, если нет перевода
         if(!p.classList.contains('translated')) await doTrans(p);
         
-        // Запускаем озвучку
-        stopAudio(); // сброс предыдущей
+        stopAudio();
         state.isAudioPlaying = true;
         e.target.classList.add('playing');
         
@@ -422,24 +436,20 @@ async function handleGlobalClicks(e) {
         showGlobalStop(false);
         state.isAudioPlaying = false;
     }
-    // 3. Клик по параграфу перевода (просто перевести)
     else if(e.target.closest('.trans-p') && !e.target.classList.contains('para-tts-btn')) {
         const p = e.target.closest('.trans-p');
         doTrans(p);
     }
-    // 4. Закрытие тултипа
     else if(e.target.classList.contains('close-tip') || (!e.target.closest('#tooltip') && ui.tooltip.style.display === 'block') && e.target.id !== 'translateSelBtn') {
         ui.tooltip.style.display = 'none';
         document.querySelectorAll('.word.active').forEach(x => x.classList.remove('active'));
     }
 }
 
-// --- Тултип и Словарь ---
 async function showTooltip(el, text) {
     document.querySelectorAll('.word.active').forEach(x => x.classList.remove('active'));
     el.classList.add('active');
     
-    // Позиционирование
     const rect = el.getBoundingClientRect();
     ui.tooltip.style.top = (rect.bottom + 5) + 'px';
     let l = rect.left;
@@ -457,7 +467,6 @@ async function showTooltip(el, text) {
             fetchPhonetics(text, lang)
         ]);
         
-        const safeW = text.replace(/'/g, "\\'");
         const targetLang = lang === 'auto' ? 'en' : lang;
         
         ui.tooltip.innerHTML = `
@@ -470,7 +479,6 @@ async function showTooltip(el, text) {
             <span class="t-trans">${trans}</span>
             <button class="close-tip">X</button>`;
             
-        // Обработчик кнопки звука внутри тултипа
         ui.tooltip.querySelector('.t-tts-btn').onclick = async (e) => {
             e.stopPropagation();
             e.target.classList.add('playing');
@@ -480,7 +488,7 @@ async function showTooltip(el, text) {
     } catch(e) { ui.tooltip.innerHTML = "Error"; }
 }
 
-// --- Выделение текста (Selection Bar) ---
+// --- Выделение текста ---
 let selText = "";
 let selTimeout;
 
@@ -490,8 +498,6 @@ function setupSelectionBar() {
         selTimeout = setTimeout(() => {
             const sel = window.getSelection();
             const txt = sel.toString().trim();
-            
-            // Показываем кнопку, если выделен текст в панели оригинала
             if(txt && txt.length > 1 && ui.orig.contains(sel.anchorNode)) {
                 selText = txt;
                 ui.selBar.classList.add('visible');
@@ -501,14 +507,16 @@ function setupSelectionBar() {
         }, 300);
     });
 
-    ui.selBtn.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if(selText) {
-            showPopupPhrase(selText);
-            ui.selBar.classList.remove('visible');
-        }
-    };
+    if(ui.selBtn) {
+        ui.selBtn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if(selText) {
+                showPopupPhrase(selText);
+                ui.selBar.classList.remove('visible');
+            }
+        };
+    }
 }
 
 async function showPopupPhrase(text) {
@@ -542,7 +550,7 @@ async function showPopupPhrase(text) {
     } catch(e) { ui.tooltip.innerHTML="Error"; }
 }
 
-// --- Ресайзер (Изменение размера панелей) ---
+// --- Ресайзер ---
 function setupResizer() {
     let isResizing = false;
     
@@ -559,20 +567,17 @@ function setupResizer() {
     
     const doResize = (e) => {
         if(!isResizing) return;
-        
         let cy = e.type.startsWith('touch') ? e.touches[0].clientY : e.clientY;
         let cx = e.type.startsWith('touch') ? e.touches[0].clientX : e.clientX;
         const r = ui.container.getBoundingClientRect();
         
         if(state.isVertical) {
-            // Вертикальный режим (сверху вниз)
             let pct = ((cy - r.top) / r.height) * 100;
             if(pct > 10 && pct < 90) {
                 ui.panel1.style.flex = `0 0 ${pct}%`;
                 ui.panel2.style.flex = '1';
             }
         } else {
-            // Горизонтальный режим (слева направо)
             let pct = ((cx - r.left) / r.width) * 100;
             if(pct > 10 && pct < 90) {
                 ui.panel1.style.flex = `0 0 ${pct}%`;
@@ -609,7 +614,6 @@ function updateLayoutUI() {
         ui.resizer.style.cursor = 'col-resize';
         ui.layoutBtn.innerText = '⬄';
     }
-    // Сброс пропорций 50/50 при смене режима
     ui.panel1.style.flex = '1';
     ui.panel2.style.flex = '1';
 }
@@ -653,10 +657,3 @@ const showGlobalStop = (show) => {
     if (ui.globalStop) ui.globalStop.style.display = show ? 'flex' : 'none';
     state.isAudioPlaying = show;
 };
-
-// --- Финальная инициализация ---
-
-// Принудительно запрашиваем голоса при загрузке (важно для Chrome)
-if (window.speechSynthesis) {
-    window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
-}
