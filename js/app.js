@@ -5,8 +5,8 @@ import { speakDevice, playGoogleSingle, stopAudio } from './tts.js';
 
 // --- Глобальное состояние ---
 const state = {
-    book: null,          // Объект epub.js
-    currentBookId: null, // ID в базе данных
+    book: null,
+    currentBookId: null,
     fb2Chapters: [],
     epubChapters: [],
     coverUrl: null,
@@ -16,7 +16,7 @@ const state = {
     isVertical: true,
     isZonesEnabled: false,
     t_sync: null,
-    saveTimeout: null    // Таймер сохранения
+    saveTimeout: null
 };
 
 let ui = {};
@@ -51,7 +51,10 @@ function initUI() {
         trans: document.getElementById('transPanel'),
         resizer: document.getElementById('resizer'),
         
+        // Навигация (исправлено)
+        topNav: document.querySelector('.top-nav-group'), 
         chapSel: document.getElementById('chapterSelect'),
+        
         tooltip: document.getElementById('tooltip'),
         selBar: document.getElementById('selection-bar'),
         selBtn: document.getElementById('translateSelBtn'),
@@ -84,7 +87,6 @@ function initUI() {
 }
 
 function setupEventListeners() {
-    // 1. Ползунок скорости
     const range = document.getElementById('rateRange');
     const label = document.getElementById('rateVal');
     if (range && label) {
@@ -93,7 +95,6 @@ function setupEventListeners() {
         label.innerText = range.value;
     }
 
-    // 2. Файлы
     if(ui.fileInput) {
         ui.fileInput.addEventListener('change', async (e) => {
             const f = e.target.files[0];
@@ -106,18 +107,14 @@ function setupEventListeners() {
         });
     }
 
-    // 3. Навигация и UI
     document.getElementById('backToLib').onclick = () => {
-        // Сначала сохраняем, потом выходим
         saveProgressNow();
-        // Сбрасываем ID, чтобы никакие таймеры не перезаписали данные
         state.currentBookId = null;
-        
         ui.readerView.classList.remove('active');
         ui.libView.classList.add('active');
         document.getElementById('settings-panel').classList.remove('open');
         stopAllWork();
-        refreshLibrary(); // Обновляем порядок книг
+        refreshLibrary();
     };
 
     document.getElementById('menu-toggle').onclick = () => {
@@ -176,7 +173,6 @@ function updateZonesState() {
     }
 }
 
-// --- Library & Open ---
 async function refreshLibrary() {
     const books = await getAllBooks();
     ui.bookGrid.innerHTML = '';
@@ -195,12 +191,9 @@ async function refreshLibrary() {
     });
 }
 
-// === ВАЖНО: Очистка состояния перед открытием ===
+// === Сброс состояния ===
 function resetState() {
-    // Останавливаем таймер сохранения от ПРЕДЫДУЩЕЙ книги
     clearTimeout(state.saveTimeout);
-    
-    // Очищаем данные
     state.book = null;
     state.fb2Chapters = [];
     state.epubChapters = [];
@@ -208,17 +201,16 @@ function resetState() {
     state.currentIdx = 0;
     state.currentBookId = null;
     
-    // Очищаем UI
     ui.orig.innerHTML = '';
     ui.trans.innerHTML = '';
     ui.chapSel.innerHTML = '';
     
-    // Скрываем навигацию (пока не загрузим главы)
-    document.getElementById('controls').style.display = 'none';
+    // ИСПРАВЛЕНИЕ: Скрываем новую панель навигации (если она есть)
+    if(ui.topNav) ui.topNav.style.display = 'none';
 }
 
 async function openBook(bookData) {
-    resetState(); // <-- СБРОС ВСЕГО СТАРОГО
+    resetState();
     
     ui.libView.classList.remove('active');
     ui.readerView.classList.add('active');
@@ -233,36 +225,37 @@ async function openBook(bookData) {
         const n = file.name.toLowerCase();
         
         if(n.endsWith('.fb2')) {
-            document.getElementById('controls').style.display = 'flex';
+            if(ui.topNav) ui.topNav.style.display = 'flex';
             processFb2Data(await file.text(), progress);
         }
         else if(n.endsWith('.epub')) {
-            document.getElementById('controls').style.display = 'flex';
+            if(ui.topNav) ui.topNav.style.display = 'flex';
             await processEpubData(await file.arrayBuffer(), progress);
         }
         else if(n.endsWith('.pdf')) {
-            // PDF не имеет глав в нашем понимании
-            document.getElementById('controls').style.display = 'none';
+            if(ui.topNav) ui.topNav.style.display = 'none';
             const text = await parsePdf(await file.arrayBuffer());
             renderText(text);
-            // Восстанавливаем скролл для PDF
             if (progress.scroll) setTimeout(() => { ui.orig.scrollTop = progress.scroll; }, 100);
         }
         else if(n.endsWith('.zip')) {
              const res = await loadZip(file);
-             document.getElementById('controls').style.display = 'flex';
-             if(res.type === 'epub') await processEpubData(res.data, progress);
-             else if(res.type === 'fb2') processFb2Data(res.data, progress);
+             if(res.type === 'epub') {
+                 if(ui.topNav) ui.topNav.style.display = 'flex';
+                 await processEpubData(res.data, progress);
+             }
+             else if(res.type === 'fb2') {
+                 if(ui.topNav) ui.topNav.style.display = 'flex';
+                 processFb2Data(res.data, progress);
+             }
              else {
-                 // TXT в архиве
-                 document.getElementById('controls').style.display = 'none';
+                 if(ui.topNav) ui.topNav.style.display = 'none';
                  renderText(res.data);
                  if (progress.scroll) setTimeout(() => { ui.orig.scrollTop = progress.scroll; }, 100);
              }
         } 
         else {
-             // Просто TXT
-             document.getElementById('controls').style.display = 'none';
+             if(ui.topNav) ui.topNav.style.display = 'none';
              renderText(await file.text());
              if (progress.scroll) setTimeout(() => { ui.orig.scrollTop = progress.scroll; }, 100);
         }
@@ -277,7 +270,6 @@ async function openBook(bookData) {
 
 function processFb2Data(text, progress) {
     state.fb2Chapters = parseFb2(text);
-    // state.epubChapters уже очищен в resetState
     ui.chapSel.innerHTML = '';
     state.fb2Chapters.forEach((c, i) => ui.chapSel.add(new Option(c.title, i)));
     loadChapter(progress.chapter || 0, progress.scroll || 0);
@@ -309,7 +301,6 @@ async function loadChapter(idx, scrollTop = 0) {
     state.currentIdx = idx;
     ui.chapSel.value = idx;
     
-    // Сохраняем ТОЛЬКО если есть ID книги (защита от записи в пустоту)
     if (state.currentBookId) saveProgress(idx, 0);
 
     showLoad();
@@ -336,25 +327,20 @@ async function loadChapter(idx, scrollTop = 0) {
     } catch(e) { renderText("Ошибка: " + e.message); } finally { hideLoad(); }
 }
 
-// --- Saving Progress ---
 function saveProgress(chapterIdx, scrollTop) {
     clearTimeout(state.saveTimeout);
-    // Ждем 1 сек после последнего движения, чтобы сохранить
     state.saveTimeout = setTimeout(() => {
         saveProgressNow(chapterIdx, scrollTop);
     }, 1000);
 }
 
 function saveProgressNow(chapterIdx, scrollTop) {
-    // Важнейшая проверка: если мы уже вышли в меню (currentBookId === null), не сохранять!
     if (!state.currentBookId) return;
-
     const ch = (chapterIdx !== undefined) ? chapterIdx : state.currentIdx;
     const scr = (scrollTop !== undefined) ? scrollTop : ui.orig.scrollTop;
     updateBookProgress(state.currentBookId, ch, scr);
 }
 
-// --- Render & Handlers ---
 function renderText(txt) {
     ui.orig.innerHTML = ''; ui.trans.innerHTML = ''; ui.orig.scrollTop = 0;
     const arr = txt.split(/\n\s*\n/).filter(x => x.trim().length > 0);
@@ -423,7 +409,6 @@ async function handleGlobalClicks(e) {
     }
 }
 
-// --- Utils ---
 function setupNavigationZones() {
     const scrollPage = (direction) => {
         const scrollAmount = window.innerHeight * 0.8;
@@ -600,7 +585,7 @@ function setupSync() {
         state.t_sync = requestAnimationFrame(() => { 
             syncScroll(ui.orig, ui.trans); 
             state.t_sync = null; 
-            saveProgress(); // Сохраняем прогресс при скролле
+            saveProgress(); 
         }); 
     };
     ui.trans.onscroll = () => { if(state.t_sync) return; state.t_sync = requestAnimationFrame(() => { syncScroll(ui.trans, ui.orig); state.t_sync = null; }); };
