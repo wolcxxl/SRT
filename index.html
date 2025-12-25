@@ -1,18 +1,21 @@
+<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="referrer" content="no-referrer">
-    <title>SmartReader</title>
+    <title>Smart Reader v67</title>
     
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#252526">
     
     <link rel="stylesheet" href="css/style.css">
     <link rel="manifest" href="manifest.json">
+    
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512' fill='%23007acc'><path d='M464 64H48C21.5 64 0 85.5 0 112v288c0 26.5 21.5 48 48 48h416c26.5 0 48-21.5 48-48V112c0-26.5-21.5-48-48-48z'/></svg>">
-
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
@@ -70,6 +73,7 @@
                     <select id="fontFamily" style="width:70px"><option value="ui">Sans</option><option value="serif">Serif</option><option value="mono">Mono</option></select>
                     <select id="fontSize" style="width:50px"><option value="14px">14</option><option value="16px">16</option><option value="18px" selected>18</option><option value="20px">20</option><option value="24px">24</option></select>
                     <button id="boldToggle" class="icon-btn" style="font-weight:bold; width:30px">B</button>
+                    <button id="zoneToggle" class="icon-btn" title="Вкл/Выкл зоны нажатия">👆</button> 
                     <button id="layoutBtn" class="icon-btn" title="Вид">⬍</button>
                 </div>
                 
@@ -77,14 +81,6 @@
                     <select id="srcLang" class="main-select"><option value="auto">Auto</option><option value="en">EN</option><option value="de">DE</option></select>
                     <span style="color:#666">→</span>
                     <select id="tgtLang" class="main-select"><option value="ru">RU</option><option value="en">EN</option></select>
-                    <div class="menu-row" style="border-top:1px solid #333; padding-top:10px; margin-top:5px">
-                     <div class="group">
-                    <select id="fontFamily" style="width:70px"><option value="ui">Sans</option><option value="serif">Serif</option><option value="mono">Mono</option></select>
-                        <select id="fontSize" style="width:50px"><option value="14px">14</option><option value="16px">16</option><option value="18px" selected>18</option><option value="20px">20</option><option value="24px">24</option></select>
-                        <button id="boldToggle" class="icon-btn" style="font-weight:bold; width:30px">B</button>
-                        <button id="zoneToggle" class="icon-btn" title="Вкл/Выкл зоны нажатия">👆</button> 
-                        <button id="layoutBtn" class="icon-btn" title="Вид">⬍</button>
-                </div>
                 </div>
             </div>
         </div>
@@ -124,5 +120,6 @@
 </div>
 
 <script type="module" src="js/app.js"></script>
+
 </body>
 </html>
