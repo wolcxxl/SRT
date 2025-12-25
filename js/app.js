@@ -99,6 +99,11 @@ function setupEventListeners() {
         document.getElementById('voiceSettings').style.display = (mode === 'edge') ? 'flex' : 'none';
     };
 
+    // --- ВСТАВИТЬ СЮДА ---
+    // Обновление цифры скорости
+    ui.rateRange.oninput = () => ui.rateVal.innerText = ui.rateRange.value;
+    // ---------------------
+    
     // Кнопки плеера
     ui.btnStart.onclick = startTranslation;
     ui.btnRead.onclick = startReading;
