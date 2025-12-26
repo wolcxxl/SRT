@@ -2,6 +2,7 @@ import { initDB, saveBookToDB, getAllBooks, deleteBook, updateBookProgress } fro
 import { translateApi, fetchPhonetics } from './api.js';
 import { loadZip, parseFb2, getFb2ChapterText, parseEpub, getEpubChapterContent, parsePdf } from './parser.js';
 import { speakDevice, playGoogleSingle, stopAudio } from './tts.js';
+import { initDB, saveBookToDB, getAllBooks, deleteBook, updateBookProgress, getCachedTranslation, saveCachedTranslation } from './db.js';
 
 // --- Глобальное состояние ---
 const state = {
@@ -477,13 +478,37 @@ async function startReading() {
     stopAllWork();
 }
 async function doTrans(el) {
+    // Если уже переведено - выходим
     if(el.classList.contains('translated')) return true;
+    
     el.classList.add('loading', 'current');
+    
+    const text = el.dataset.text;
+    const src = ui.srcLang.value;
+    const tgt = ui.tgtLang.value;
+
     try {
-        const t = await translateApi(el.dataset.text, ui.srcLang.value, ui.tgtLang.value);
+        // 1. Сначала ищем в базе данных (КЭШ)
+        let t = await getCachedTranslation(text, src, tgt);
+        
+        // 2. Если в базе нет - идем в интернет (API)
+        if (!t) {
+            t = await translateApi(text, src, tgt);
+            // 3. Сохраняем результат в базу
+            if (t) await saveCachedTranslation(text, src, tgt, t);
+        }
+
+        // Отображаем
         el.innerHTML = `<button class="para-tts-btn">🔊</button>${t}`;
-        el.classList.add('translated'); return true;
-    } catch { el.classList.add('error'); return false; } finally { el.classList.remove('loading', 'current'); }
+        el.classList.add('translated');
+        return true;
+    } catch (e) {
+        console.error(e);
+        el.classList.add('error');
+        return false;
+    } finally {
+        el.classList.remove('loading', 'current');
+    }
 }
 async function playFullAudio(text, lang) {
     showGlobalStop(true);
