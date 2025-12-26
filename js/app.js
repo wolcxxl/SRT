@@ -24,15 +24,17 @@ let ui = {};
 
 document.addEventListener('DOMContentLoaded', async () => {
     initUI();
+    console.log("App initialized");
     try {
         await initDB();
         await refreshLibrary();
     } catch (e) { console.error("DB Init Error:", e); }
 
+    // Инициализация всех обработчиков
     setupEventListeners();
     setupResizer();
     setupSelectionBar();
-    setupNavigationZones();
+    setupNavigationZones(); // Эта функция теперь точно есть внизу
     setupSwipeGestures();
     
     document.body.addEventListener('click', handleGlobalClicks);
@@ -65,8 +67,9 @@ function initUI() {
         modalImg: document.getElementById('modal-img-element'),
         modalClose: document.getElementById('modal-close'),
 
-        // ВОТ ЗДЕСЬ ИМЯ ПЕРЕМЕННОЙ voiceSrc
+        // ВАЖНО: JS переменная называется voiceSrc, а ID в HTML - voiceSource
         voiceSrc: document.getElementById('voiceSource'),
+        
         voiceRu: document.getElementById('voiceRu'),
         voiceEn: document.getElementById('voiceEn'),
         voiceDe: document.getElementById('voiceDe'),
@@ -123,11 +126,13 @@ function setupEventListeners() {
     document.getElementById('menu-toggle').onclick = () => document.getElementById('settings-panel').classList.toggle('open');
     
     // Переключение Google/Edge
-    ui.voiceSrc.onchange = () => {
-        const mode = ui.voiceSrc.value;
-        const vs = document.getElementById('voiceSettings');
-        if(vs) vs.style.display = (mode === 'edge') ? 'flex' : 'none';
-    };
+    if (ui.voiceSrc) {
+        ui.voiceSrc.onchange = () => {
+            const mode = ui.voiceSrc.value;
+            const vs = document.getElementById('voiceSettings');
+            if(vs) vs.style.display = (mode === 'edge') ? 'flex' : 'none';
+        };
+    }
 
     ui.chapSel.onchange = (e) => loadChapter(parseInt(e.target.value));
     document.getElementById('prevBtn').onclick = () => loadChapter(state.currentIdx - 1);
@@ -159,8 +164,8 @@ function setupEventListeners() {
 
     if(ui.modalClose) ui.modalClose.onclick = closeImageModal;
     if(ui.imageModal) ui.imageModal.onclick = (e) => { if(e.target === ui.imageModal) closeImageModal(); };
-
-    setupSync();
+    
+    // Вызовы функций настройки UI
     updateLayoutUI(); 
     updateZonesState();
 }
@@ -297,7 +302,7 @@ function applyTranslation(el, text) {
     el.classList.add('translated');
 }
 
-// --- ИСПРАВЛЕННАЯ ФУНКЦИЯ ЗВУКА ---
+// --- ФУНКЦИЯ ЗВУКА (ИСПРАВЛЕНА: ui.voiceSrc) ---
 async function playFullAudio(text, lang) { 
     stopAudio(); 
     showGlobalStop(true); 
@@ -322,7 +327,7 @@ async function playFullAudio(text, lang) {
                 await playGoogleSingle(chunk, lang, rate); 
                 await sleep(50); // Пауза для стабильности
             } catch (e) {
-                // Если Google заблокировал/ошибка - читаем этот кусок устройством (Fallback)
+                // Если ошибка - читаем этот кусок устройством (Soft Fallback)
                 console.log("Google error, using device fallback for chunk");
                 await speakDevice(chunk, lang, 'f', 'native', rate);
             }
@@ -357,6 +362,25 @@ function setupSync() {
     ui.orig.onscroll = () => requestAnimationFrame(() => sync(ui.orig, ui.trans));
     ui.trans.onscroll = () => requestAnimationFrame(() => sync(ui.trans, ui.orig));
 }
+
+// --- ВОТ ТУТ ФУНКЦИЯ, КОТОРОЙ НЕ ХВАТАЛО ---
+function setupNavigationZones() {
+    const handleZoneClick = (direction) => {
+        const scrollAmount = window.innerHeight * 0.8;
+        const el = ui.orig;
+        
+        if (direction === 1 && el.scrollTop + el.clientHeight >= el.scrollHeight - 50) {
+            loadChapter(state.currentIdx + 1);
+        } else if (direction === -1 && el.scrollTop <= 0) {
+            loadChapter(state.currentIdx - 1);
+        } else {
+            el.scrollBy({ top: scrollAmount * direction, behavior: 'smooth' });
+        }
+    };
+    if(ui.zoneRight) ui.zoneRight.onclick = (e) => { e.stopPropagation(); handleZoneClick(1); };
+    if(ui.zoneLeft) ui.zoneLeft.onclick = (e) => { e.stopPropagation(); handleZoneClick(-1); };
+}
+// -------------------------------------------
 
 function setupResizer() { 
     let isResizing = false; let rAF = null;
@@ -429,11 +453,11 @@ async function showTooltip(targetEl, text) {
 }
 
 function setupSelectionBar() { let t; document.addEventListener('selectionchange', () => { clearTimeout(t); t = setTimeout(() => { const s = window.getSelection(); const txt = s.toString().trim(); if(txt.length > 1 && ui.orig.contains(s.anchorNode)) { ui.selBtn.dataset.text = txt; ui.selBar.classList.add('visible'); } else ui.selBar.classList.remove('visible'); }, 300); }); if(ui.selBtn) ui.selBtn.onclick = (e) => { e.preventDefault(); showPopupPhrase(ui.selBtn.dataset.text); ui.selBar.classList.remove('visible'); }; }
-async function showPopupPhrase(text) { showTooltip(ui.orig, text); } // Упростили для примера
+async function showPopupPhrase(text) { showTooltip(ui.orig, text); } 
 function openImageModal(src) { if(ui.modalImg) { ui.modalImg.src = src; ui.imageModal.classList.add('visible'); } }
 function closeImageModal() { ui.imageModal.classList.remove('visible'); }
 function toggleLayout() { state.isVertical = !state.isVertical; if(state.isVertical) { ui.container.style.flexDirection='column'; ui.resizer.style.cssText='width:100%;height:12px;cursor:row-resize'; } else { ui.container.style.flexDirection='row'; ui.resizer.style.cssText='width:12px;height:100%;cursor:col-resize'; } }
-function updateLayoutUI() { toggleLayout(); toggleLayout(); } // Хак для сброса
+function updateLayoutUI() { toggleLayout(); toggleLayout(); } 
 function getStartIndex() { let idx = Array.from(document.querySelectorAll('.trans-p:not(.image-stub)')).findIndex(b => b.offsetTop + b.clientHeight > ui.trans.scrollTop); return idx === -1 ? 0 : idx; }
 function saveProgress(ch, sc) { clearTimeout(state.saveTimeout); state.saveTimeout = setTimeout(() => saveProgressNow(ch, sc), 1000); }
 function saveProgressNow(ch, sc) { if (state.currentBookId) updateBookProgress(state.currentBookId, ch !== undefined ? ch : state.currentIdx, sc !== undefined ? sc : ui.orig.scrollTop); }
