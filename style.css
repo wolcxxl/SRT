@@ -613,3 +613,8 @@ button.active-state {
     font-size: 16px;
     z-index: 10;
 }
+/* Обязательно добавьте это, чтобы убрать лаги при перемотке */
+.orig-p, .trans-p {
+    content-visibility: auto; 
+    contain-intrinsic-size: 1px 100px; /* Примерная высота абзаца */
+}
