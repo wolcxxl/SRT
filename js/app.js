@@ -17,7 +17,8 @@ const state = {
     isZonesEnabled: false,
     saveTimeout: null,
     translationObserver: null,
-    syncTimeout: null // Для предотвращения зацикливания скролла
+    // Флаг для предотвращения зацикливания скролла
+    isSyncing: false 
 };
 
 let ui = {};
@@ -25,7 +26,7 @@ let ui = {};
 document.addEventListener('DOMContentLoaded', async () => {
     initUI();
     
-    // Инициализация
+    // Инициализация БД и Библиотеки
     try {
         await initDB();
         await refreshLibrary();
@@ -210,7 +211,6 @@ async function refreshLibrary() {
         return;
     }
     
-    // Сортировка: недавно открытые первыми
     books.sort((a, b) => (b.lastRead || b.date) - (a.lastRead || a.date));
 
     const frag = document.createDocumentFragment();
@@ -297,7 +297,6 @@ async function openBook(bookData) {
                  renderText(res.data); 
              }
         } else {
-             // PDF или TXT
              ui.topNav.style.display = 'none';
              if (n.endsWith('.pdf')) {
                  textOrBuffer = await parsePdf(await file.arrayBuffer());
@@ -374,9 +373,8 @@ async function loadChapter(idx, scrollTop = 0) {
         
         renderText(text);
         
-        // Сброс скролла и анимация
         ui.orig.classList.remove('page-anim');
-        void ui.orig.offsetWidth; // Trigger Reflow
+        void ui.orig.offsetWidth;
         ui.orig.classList.add('page-anim');
         
         ui.orig.scrollTop = 0; 
@@ -394,14 +392,13 @@ async function loadChapter(idx, scrollTop = 0) {
     }
 }
 
-// --- Rendering (ОПТИМИЗИРОВАНО) ---
+// --- Rendering ---
 
 function renderText(txt) {
     ui.orig.innerHTML = ''; 
     ui.trans.innerHTML = ''; 
     ui.orig.scrollTop = 0;
 
-    // Разбиваем на параграфы, игнорируя пустые строки
     const arr = txt.split(/\n\s*\n/).filter(x => x.trim().length > 0);
     
     const f1 = document.createDocumentFragment(); 
@@ -422,16 +419,15 @@ function renderText(txt) {
             f1.appendChild(createImgBtn()); 
             f2.appendChild(createImgBtn());
         } else {
-            // ОПТИМИЗАЦИЯ: Не создаем SPAN для каждого слова. Рендерим чистый текст.
+            // ОПТИМИЗАЦИЯ: Рендерим чистый текст без span для каждого слова
             const d1 = document.createElement('div'); 
             d1.className = 'orig-p'; 
-            d1.textContent = s; // Безопасный рендер текста
+            d1.textContent = s; 
             f1.appendChild(d1);
             
             const d2 = document.createElement('div'); 
             d2.className = 'trans-p'; 
             d2.dataset.text = s; 
-            // Кнопка звука добавляется сразу, перевод загружается лениво
             d2.innerHTML = `<button class="para-tts-btn">🔊</button><span class="trans-content">${s}</span>`; 
             f2.appendChild(d2);
         }
@@ -457,7 +453,6 @@ function setupTranslationObserver() {
                 if (!text) return;
                 
                 try {
-                    // Проверяем кэш только для видимых элементов
                     const t = await getCachedTranslation(text, src, tgt);
                     if (t && el.isConnected && !el.classList.contains('translated')) {
                         requestAnimationFrame(() => { 
@@ -469,17 +464,13 @@ function setupTranslationObserver() {
         });
     }, { root: ui.trans, rootMargin: '300px' });
     
-    // Наблюдаем за параграфами перевода
     const els = ui.trans.querySelectorAll('.trans-p:not(.translated):not(.image-stub)');
     els.forEach(el => state.translationObserver.observe(el));
 }
 
 function applyTranslation(el, text) {
     const btn = el.querySelector('.para-tts-btn');
-    const content = el.querySelector('.trans-content') || el;
-    // Сохраняем кнопку, меняем текст
     if(btn) {
-        // Очищаем контент кроме кнопки
         while(el.childNodes.length > 1) { el.removeChild(el.lastChild); }
         el.insertAdjacentText('beforeend', text);
     } else {
@@ -488,52 +479,66 @@ function applyTranslation(el, text) {
     el.classList.add('translated');
 }
 
-// --- Sync & Scroll (ОПТИМИЗИРОВАНО) ---
+// --- Sync & Scroll (FIXED) ---
 
 function setupSync() {
-    // Используем индексный метод вместо процентного для точности
-    const sync = (source, target) => {
-        if(state.syncTimeout) return;
-        
-        state.syncTimeout = setTimeout(() => {
-            const sourceParas = source.children;
-            const targetParas = target.children;
-            if(sourceParas.length === 0 || targetParas.length === 0) {
-                 state.syncTimeout = null;
-                 return;
-            }
+    state.isSyncing = false;
 
-            // Находим верхний видимый элемент
-            const offset = source.scrollTop;
-            let idx = -1;
-            
-            // Бинарный поиск или простой перебор (здесь простой, т.к. элементов не миллион)
-            for(let i=0; i < sourceParas.length; i++) {
-                const p = sourceParas[i];
-                if(p.offsetTop + p.clientHeight > offset) {
-                    idx = i;
-                    break;
-                }
+    const sync = (source, target) => {
+        if (state.isSyncing) return;
+        
+        state.isSyncing = true;
+        
+        const sourceParas = Array.from(source.children);
+        const targetParas = Array.from(target.children);
+        
+        if (sourceParas.length === 0 || targetParas.length === 0) {
+            state.isSyncing = false;
+            return;
+        }
+
+        const sourceTop = source.scrollTop;
+        const sourceHeight = source.clientHeight;
+        const sourceCenter = sourceTop + (sourceHeight / 3); 
+
+        let activeIdx = -1;
+        
+        for (let i = 0; i < sourceParas.length; i++) {
+            const p = sourceParas[i];
+            const pTop = p.offsetTop;
+            const pBottom = pTop + p.clientHeight;
+
+            if (pTop <= sourceCenter && pBottom >= sourceCenter) {
+                activeIdx = i;
+                break;
             }
+        }
+
+        if (activeIdx !== -1 && targetParas[activeIdx]) {
+            const targetEl = targetParas[activeIdx];
+            const sourceEl = sourceParas[activeIdx];
             
-            if(idx !== -1 && targetParas[idx]) {
-                const tP = targetParas[idx];
-                // Плавная корректировка
-                target.scrollTop = tP.offsetTop; 
+            // Вычисляем смещение внутри абзаца
+            let ratio = 0;
+            if (sourceEl.clientHeight > 0) {
+                 ratio = (sourceTop - sourceEl.offsetTop) / sourceEl.clientHeight;
             }
+            const safeRatio = Math.max(0, Math.min(1, ratio));
+            const targetScrollY = targetEl.offsetTop + (targetEl.clientHeight * safeRatio);
             
-            state.syncTimeout = null;
-            if(source === ui.orig) saveProgress();
-        }, 50); // Debounce
+            target.scrollTop = targetScrollY;
+        }
+
+        setTimeout(() => { state.isSyncing = false; }, 100);
+        
+        if (source === ui.orig) saveProgress();
     };
 
     ui.orig.onscroll = () => sync(ui.orig, ui.trans);
-    // Обратную синхронизацию часто лучше отключить или делать очень аккуратно,
-    // чтобы они не боролись друг с другом. Здесь оставим только Orig -> Trans
-    // ui.trans.onscroll = () => sync(ui.trans, ui.orig); 
+    ui.trans.onscroll = () => sync(ui.trans, ui.orig);
 }
 
-// --- Resize Logic (ОПТИМИЗИРОВАНО) ---
+// --- Resize Logic ---
 
 function setupResizer() {
     let isResizing = false;
@@ -552,7 +557,7 @@ function setupResizer() {
     
     const move = (e) => {
         if(!isResizing) return;
-        if(rAF) return; // Пропуск кадров, если браузер занят
+        if(rAF) return;
 
         rAF = requestAnimationFrame(() => {
             let clientY = e.type.startsWith('touch') ? e.touches[0].clientY : e.clientY;
@@ -568,7 +573,6 @@ function setupResizer() {
             
             if(pct > 10 && pct < 90) {
                 ui.panel1.style.flex = `0 0 ${pct}%`;
-                // Panel 2 автоматически займет остальное место
             }
             rAF = null;
         });
@@ -584,7 +588,7 @@ function setupResizer() {
     document.addEventListener('touchmove', move);
 }
 
-// --- Interaction Logic (Клик по словам) ---
+// --- Interaction Logic ---
 
 async function handleGlobalClicks(e) {
     const target = e.target;
@@ -601,32 +605,23 @@ async function handleGlobalClicks(e) {
         e.stopPropagation(); 
         const p = target.closest('.trans-p'); 
         
-        // Сначала переводим, если не переведено
         if(!p.classList.contains('translated')) {
             const success = await doTrans(p);
             if(!success) return;
         }
         
-        stopAudio(); 
-        state.isAudioPlaying = true; 
-        target.classList.add('playing'); 
-        
         const textToRead = p.innerText.replace('🔊', '').trim();
         await playFullAudio(textToRead, ui.tgtLang.value); 
-        
-        target.classList.remove('playing'); 
-        showGlobalStop(false); 
-        state.isAudioPlaying = false; 
         return;
     }
     
-    // 3. Клик по абзацу перевода (перевести его)
+    // 3. Перевод абзаца по клику
     if(target.closest('.trans-p') && !target.closest('.image-stub')) { 
         doTrans(target.closest('.trans-p')); 
         return;
     }
     
-    // 4. Клик по слову в оригинале (Новая логика без SPAN)
+    // 4. Клик по слову в оригинале (умное выделение)
     if(target.closest('.orig-p')) {
         handleWordClick(e);
         return;
@@ -638,16 +633,11 @@ async function handleGlobalClicks(e) {
     }
 }
 
-// Функция для определения слова под курсором без SPAN
 function handleWordClick(e) {
     const sel = window.getSelection();
-    
-    // Если пользователь выделил текст сам, не мешаем ему
     if (sel.toString().length > 1) return;
 
-    // Пытаемся выделить слово автоматически
     if (sel.isCollapsed) {
-        // Расширяем выделение до слова
         sel.modify("move", "forward", "character");
         sel.modify("move", "backward", "word");
         sel.modify("extend", "forward", "word");
@@ -655,11 +645,11 @@ function handleWordClick(e) {
     
     const word = sel.toString().trim();
     if (word && /^[a-zA-Zа-яА-Я0-9\u00C0-\u00FF'-]+$/.test(word)) {
-        showTooltip(e.target, word); // Передаем target для позиционирования, но позицию возьмем из мыши лучше
+        showTooltip(e.target, word); 
     }
 }
 
-// --- Translation & TTS Logic ---
+// --- Translation & TTS Logic (FIXED) ---
 
 async function doTrans(el) {
     if(el.classList.contains('translated')) return true;
@@ -686,39 +676,53 @@ async function doTrans(el) {
 }
 
 async function playFullAudio(text, lang) {
+    stopAudio();
     showGlobalStop(true);
+    state.isAudioPlaying = true;
+
     const provider = ui.voiceSrc.value;
     const rate = ui.rateRange ? parseFloat(ui.rateRange.value) : 1.0;
     
-    // Улучшенная разбивка на предложения
-    const chunks = text.match(/[^.!?\s][^.!?]*(?:[.!?](?!['"]?\s|$)[^.!?]*)*[.!?]?['"]?(?=\s|$)/g) || [text];
-    
-    for (let chunk of chunks) {
-        if(!state.isWorking && !state.isAudioPlaying) break;
-        chunk = chunk.trim();
-        if(!chunk) continue;
-        
-        if (provider === 'google') {
-            // Google TTS имеет лимит символов
-             if (chunk.length > 180) {
-                 const subs = chunk.match(/.{1,180}(?:\s|$)/g);
-                 if(subs) {
-                     for(let s of subs) await playGoogleSingle(s, lang, rate);
-                     continue;
-                 }
-             }
-             await playGoogleSingle(chunk, lang, rate);
-        } else {
-            let gender = 'f';
-            if (lang.startsWith('ru')) gender = ui.voiceRu.value;
-            else if (lang.startsWith('en')) gender = ui.voiceEn.value;
-            else if (lang.startsWith('de')) gender = ui.voiceDe.value;
-            await speakDevice(text, lang, gender, provider, rate);
-            break; // Device TTS обычно читает всё сразу
+    const cleanText = text.replace(/🔊/g, '').trim();
+    if (!cleanText) {
+        showGlobalStop(false);
+        state.isAudioPlaying = false;
+        return;
+    }
+
+    if (provider === 'google') {
+        // Разбивка: предложения или весь текст, если точек нет
+        let chunks = cleanText.match(/[^.!?]+[.!?]+|[^.!?]+$/g);
+        if (!chunks) chunks = [cleanText];
+
+        for (let chunk of chunks) {
+            if (!state.isWorking && !state.isAudioPlaying) break;
+            
+            chunk = chunk.trim();
+            if (chunk.length === 0) continue;
+
+            // Если кусок слишком длинный для Google, бьем его еще мельче
+            if (chunk.length > 180) {
+                const subChunks = chunk.match(/.{1,180}(?:\s|$)/g) || [chunk];
+                for (let sub of subChunks) {
+                    if (!state.isWorking && !state.isAudioPlaying) break;
+                    await playGoogleSingle(sub, lang, rate);
+                }
+            } else {
+                await playGoogleSingle(chunk, lang, rate);
+            }
         }
+    } else {
+        // Нативное устройство
+        let gender = 'f';
+        if (lang.startsWith('ru')) gender = ui.voiceRu.value;
+        else if (lang.startsWith('en')) gender = ui.voiceEn.value;
+        else if (lang.startsWith('de')) gender = ui.voiceDe.value;
+        await speakDevice(cleanText, lang, gender, provider, rate);
     }
     
-    if(!state.isWorking) showGlobalStop(false);
+    state.isAudioPlaying = false;
+    showGlobalStop(false);
 }
 
 // --- Helpers ---
@@ -794,18 +798,13 @@ function updateWorkButtons(working) {
 
 function getStartIndex(elements) {
     const top = ui.trans.scrollTop;
-    // Находим первый элемент, который виден или ниже линии скролла
     let idx = elements.findIndex(b => b.offsetTop + b.clientHeight > top);
     return idx === -1 ? 0 : idx;
 }
 
-// Вспомогательная функция для тултипа
 async function showTooltip(targetEl, text) {
-    // Позиционирование
-    // Лучше использовать координаты выделения, но пока оставим привязку к параграфу + смещение
-    const rect = targetEl.getBoundingClientRect(); // Это будет rect всего параграфа
-    
-    // Пытаемся получить координаты выделения
+    // Координаты
+    const rect = targetEl.getBoundingClientRect();
     const sel = window.getSelection();
     let left = rect.left;
     let top = rect.bottom;
@@ -848,6 +847,7 @@ async function showTooltip(targetEl, text) {
         ui.tooltip.querySelector('.t-tts-btn').onclick = async (e) => { 
             e.stopPropagation(); 
             e.target.classList.add('playing'); 
+            // Передаем точное слово для озвучки
             await playFullAudio(text, targetLang); 
             e.target.classList.remove('playing'); 
         };
@@ -862,7 +862,6 @@ function setupNavigationZones() {
         const amount = window.innerHeight * 0.8;
         const el = ui.orig;
         
-        // Проверка на конец/начало главы
         if (dir === 1 && el.scrollTop + el.clientHeight >= el.scrollHeight - 50) {
             loadChapter(state.currentIdx + 1);
         } else if (dir === -1 && el.scrollTop <= 0) {
@@ -897,10 +896,8 @@ function setupSelectionBar() {
             if(!sel.rangeCount) return;
             const txt = sel.toString().trim();
             
-            // Показываем бар только если выделение внутри панели оригинала и длинное
             if(txt.length > 1 && ui.orig.contains(sel.anchorNode)) {
                 ui.selBar.classList.add('visible');
-                // Сохраняем текст в замыкании кнопки (или глобально, но лучше через атрибут)
                 ui.selBtn.dataset.text = txt;
             } else {
                 ui.selBar.classList.remove('visible');
@@ -952,7 +949,6 @@ async function showPopupPhrase(text) {
     }
 }
 
-// Utils
 function openImageModal(src) { if(ui.modalImg && ui.imageModal) { ui.modalImg.src = src; ui.imageModal.classList.add('visible'); } }
 function closeImageModal() { if(ui.imageModal) ui.imageModal.classList.remove('visible'); setTimeout(() => { if(ui.modalImg) ui.modalImg.src = ""; }, 300); }
 function toggleLayout() { state.isVertical = !state.isVertical; updateLayoutUI(); }
