@@ -15,34 +15,25 @@ const state = {
     isAudioPlaying: false,
     isVertical: true,
     isZonesEnabled: false,
+    t_sync: null,
     saveTimeout: null,
-    translationObserver: null,
-    // Флаг для предотвращения зацикливания скролла
-    isSyncing: false 
+    translationObserver: null
 };
 
 let ui = {};
 
 document.addEventListener('DOMContentLoaded', async () => {
     initUI();
-    
-    // Инициализация БД и Библиотеки
-    try {
-        await initDB();
-        await refreshLibrary();
-    } catch (e) {
-        console.error("DB Init Error:", e);
-        setStatus("Ошибка базы данных");
-    }
-
+    await initDB();
+    await refreshLibrary();
     setupEventListeners();
     setupResizer();
     setupSelectionBar();
     setupNavigationZones();
     setupSwipeGestures();
     
-    // Глобальный клик
     document.body.addEventListener('click', handleGlobalClicks);
+    if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = () => {};
 });
 
 function initUI() {
@@ -95,36 +86,27 @@ function initUI() {
     };
 }
 
-// --- Event Listeners ---
-
 function setupEventListeners() {
-    // Настройки скорости
-    if (ui.rateRange && ui.rateVal) {
-        ui.rateRange.addEventListener('input', (e) => {
-            ui.rateVal.innerText = e.target.value;
-        });
-        ui.rateVal.innerText = ui.rateRange.value;
+    const range = document.getElementById('rateRange');
+    const label = document.getElementById('rateVal');
+    if (range && label) {
+        range.oninput = null;
+        range.addEventListener('input', function() { label.innerText = this.value; });
+        label.innerText = range.value;
     }
 
-    // Загрузка файла
     if(ui.fileInput) {
         ui.fileInput.addEventListener('change', async (e) => {
             const f = e.target.files[0];
             if(!f) return;
             showLoad();
-            try {
-                await saveBookToDB(f, { title: f.name });
-                await refreshLibrary();
-            } catch (err) {
-                alert("Ошибка сохранения: " + err.message);
-            } finally {
-                hideLoad();
-                ui.fileInput.value = null;
-            }
+            await saveBookToDB(f, { title: f.name });
+            await refreshLibrary();
+            hideLoad();
+            ui.fileInput.value = null;
         });
     }
 
-    // Навигация
     document.getElementById('backToLib').onclick = () => {
         saveProgressNow();
         state.currentBookId = null;
@@ -141,34 +123,27 @@ function setupEventListeners() {
     
     ui.voiceSrc.onchange = () => {
         const mode = ui.voiceSrc.value;
-        const voiceSettings = document.getElementById('voiceSettings');
-        if (voiceSettings) voiceSettings.style.display = (mode === 'edge') ? 'flex' : 'none';
+        document.getElementById('voiceSettings').style.display = (mode === 'edge') ? 'flex' : 'none';
     };
 
     ui.chapSel.onchange = (e) => loadChapter(parseInt(e.target.value));
     document.getElementById('prevBtn').onclick = () => loadChapter(state.currentIdx - 1);
     document.getElementById('nextBtn').onclick = () => loadChapter(state.currentIdx + 1);
 
-    // Управление воспроизведением
     ui.btnStart.onclick = startTranslation;
     ui.btnRead.onclick = startReading;
     ui.btnStop.onclick = stopAllWork;
     if(ui.globalStop) ui.globalStop.onclick = stopAllWork;
 
-    // Внешний вид
     ui.layoutBtn.onclick = toggleLayout;
 
     ui.fontFamily.onchange = () => {
-        document.body.classList.forEach(cls => {
-            if (cls.startsWith('font-')) document.body.classList.remove(cls);
-        });
+        document.body.className = document.body.className.replace(/font-\w+/g, '');
         if(ui.fontFamily.value !== 'ui') document.body.classList.add(`font-${ui.fontFamily.value}`);
     };
-
     document.getElementById('fontSize').onchange = (e) => {
         document.documentElement.style.setProperty('--font-size', e.target.value);
     };
-    
     document.getElementById('boldToggle').onclick = (e) => {
         document.body.classList.toggle('font-bold');
         e.target.classList.toggle('active-state');
@@ -181,11 +156,8 @@ function setupEventListeners() {
         };
     }
 
-    // Модальное окно
     if(ui.modalClose) ui.modalClose.onclick = closeImageModal;
-    if(ui.imageModal) ui.imageModal.onclick = (e) => { 
-        if(e.target === ui.imageModal) closeImageModal(); 
-    };
+    if(ui.imageModal) ui.imageModal.onclick = (e) => { if(e.target === ui.imageModal) closeImageModal(); };
 
     setupSync();
     updateLayoutUI(); 
@@ -194,51 +166,33 @@ function setupEventListeners() {
 
 function updateZonesState() {
     if (!ui.zoneToggle || !ui.zoneLeft || !ui.zoneRight) return;
-    const action = state.isZonesEnabled ? 'add' : 'remove';
-    ui.zoneToggle.classList[action]('active-state');
-    ui.zoneLeft.classList[action]('active');
-    ui.zoneRight.classList[action]('active');
+    if (state.isZonesEnabled) {
+        ui.zoneToggle.classList.add('active-state');
+        ui.zoneLeft.classList.add('active');
+        ui.zoneRight.classList.add('active');
+    } else {
+        ui.zoneToggle.classList.remove('active-state');
+        ui.zoneLeft.classList.remove('active');
+        ui.zoneRight.classList.remove('active');
+    }
 }
-
-// --- Library Logic ---
 
 async function refreshLibrary() {
     const books = await getAllBooks();
     ui.bookGrid.innerHTML = '';
-    
     if(books.length === 0) {
         ui.bookGrid.innerHTML = '<div style="color:#666;width:100%;text-align:center;padding-top:20px">Библиотека пуста</div>';
         return;
     }
-    
     books.sort((a, b) => (b.lastRead || b.date) - (a.lastRead || a.date));
 
-    const frag = document.createDocumentFragment();
     books.forEach(book => {
-        const card = document.createElement('div'); 
-        card.className = 'book-card';
-        card.innerHTML = `
-            <button class="delete-btn" title="Удалить">×</button>
-            <div class="book-cover">📖</div>
-            <div class="book-info">
-                <div class="book-title">${book.name}</div>
-                <div class="book-fmt">${book.type.toUpperCase()}</div>
-            </div>
-        `;
-        
-        const delBtn = card.querySelector('.delete-btn');
-        delBtn.onclick = async (e) => { 
-            e.stopPropagation(); 
-            if(confirm(`Удалить книгу "${book.name}"?`)) { 
-                await deleteBook(book.id); 
-                refreshLibrary(); 
-            }
-        };
-        
+        const card = document.createElement('div'); card.className = 'book-card';
+        card.innerHTML = `<button class="delete-btn" data-id="${book.id}">×</button><div class="book-cover">📖</div><div class="book-info"><div class="book-title">${book.name}</div><div class="book-fmt">${book.type}</div></div>`;
+        card.querySelector('.delete-btn').onclick = async (e) => { e.stopPropagation(); if(confirm("Удалить?")) { await deleteBook(book.id); refreshLibrary(); }};
         card.onclick = () => openBook(book); 
-        frag.appendChild(card);
+        ui.bookGrid.appendChild(card);
     });
-    ui.bookGrid.appendChild(frag);
 }
 
 function resetState() {
@@ -264,62 +218,39 @@ async function openBook(bookData) {
     resetState();
     ui.libView.classList.remove('active');
     ui.readerView.classList.add('active');
-    
     state.currentBookId = bookData.id;
     const file = bookData.file;
     const progress = bookData.progress || { chapter: 0, scroll: 0 };
-    
     setStatus(`Загрузка...`);
     showLoad();
-    
     try {
         const n = file.name.toLowerCase();
-        let textOrBuffer;
-
-        if (n.endsWith('.fb2')) {
-            ui.topNav.style.display = 'flex';
-            textOrBuffer = await file.text();
-            processFb2Data(textOrBuffer, progress);
-        } else if (n.endsWith('.epub')) {
-            ui.topNav.style.display = 'flex';
-            textOrBuffer = await file.arrayBuffer();
-            await processEpubData(textOrBuffer, progress);
-        } else if (n.endsWith('.zip')) {
+        if(n.endsWith('.fb2')) {
+            if(ui.topNav) ui.topNav.style.display = 'flex';
+            processFb2Data(await file.text(), progress);
+        } else if(n.endsWith('.epub')) {
+            if(ui.topNav) ui.topNav.style.display = 'flex';
+            await processEpubData(await file.arrayBuffer(), progress);
+        } else if(n.endsWith('.pdf')) {
+            if(ui.topNav) ui.topNav.style.display = 'none';
+            renderText(await parsePdf(await file.arrayBuffer()));
+        } else if(n.endsWith('.zip')) {
              const res = await loadZip(file);
-             if(res.type === 'epub') { 
-                 ui.topNav.style.display = 'flex'; 
-                 await processEpubData(res.data, progress); 
-             } else if(res.type === 'fb2') { 
-                 ui.topNav.style.display = 'flex'; 
-                 processFb2Data(res.data, progress); 
-             } else { 
-                 ui.topNav.style.display = 'none'; 
-                 renderText(res.data); 
-             }
+             if(res.type === 'epub') { if(ui.topNav) ui.topNav.style.display = 'flex'; await processEpubData(res.data, progress); }
+             else if(res.type === 'fb2') { if(ui.topNav) ui.topNav.style.display = 'flex'; processFb2Data(res.data, progress); }
+             else { if(ui.topNav) ui.topNav.style.display = 'none'; renderText(res.data); }
         } else {
-             ui.topNav.style.display = 'none';
-             if (n.endsWith('.pdf')) {
-                 textOrBuffer = await parsePdf(await file.arrayBuffer());
-             } else {
-                 textOrBuffer = await file.text();
-             }
-             renderText(textOrBuffer);
+             if(ui.topNav) ui.topNav.style.display = 'none';
+             renderText(await file.text());
         }
         setStatus(file.name);
-    } catch(err) { 
-        console.error(err); 
-        alert("Ошибка при открытии: " + err.message); 
-        setStatus("Ошибка"); 
-    } finally { 
-        hideLoad(); 
-    }
+    } catch(err) { console.error(err); alert("Ошибка: " + err.message); setStatus("Ошибка"); } finally { hideLoad(); }
 }
-
-// --- Data Processing ---
 
 function processFb2Data(text, progress) {
     state.fb2Chapters = parseFb2(text);
-    fillChapterSelect(state.fb2Chapters);
+    ui.chapSel.innerHTML = '';
+    state.fb2Chapters.forEach((c, i) => ui.chapSel.add(new Option(c.title, i)));
     loadChapter(progress.chapter || 0, progress.scroll || 0);
 }
 
@@ -328,35 +259,20 @@ async function processEpubData(buffer, progress) {
     state.book = data.book;
     state.epubChapters = data.chapters;
     if(data.coverUrl) state.coverUrl = data.coverUrl;
-    fillChapterSelect(state.epubChapters);
-    loadChapter(progress.chapter || 0, progress.scroll || 0);
-}
-
-function fillChapterSelect(chapters) {
     ui.chapSel.innerHTML = '';
-    const frag = document.createDocumentFragment();
-    chapters.forEach((c, i) => {
-        const opt = document.createElement('option');
-        opt.value = i;
-        opt.text = c.title || `Глава ${i + 1}`;
-        frag.appendChild(opt);
-    });
-    ui.chapSel.appendChild(frag);
+    state.epubChapters.forEach((c, i) => ui.chapSel.add(new Option(c.title, i)));
+    loadChapter(progress.chapter || 0, progress.scroll || 0);
 }
 
 async function loadChapter(idx, scrollTop = 0) {
     stopAllWork();
-    
     let max = 0;
     if (state.epubChapters.length > 0) max = state.epubChapters.length - 1;
     else if (state.fb2Chapters.length > 0) max = state.fb2Chapters.length - 1;
-    
-    if (idx < 0) idx = 0; 
-    if (idx > max && max > 0) idx = max;
+    if (idx < 0) idx = 0; if (idx > max && max > 0) idx = max;
     
     state.currentIdx = idx;
     ui.chapSel.value = idx;
-    
     if (state.currentBookId) saveProgress(idx, 0);
 
     showLoad();
@@ -370,516 +286,57 @@ async function loadChapter(idx, scrollTop = 0) {
             text = await getEpubChapterContent(state.book, chap);
             if (idx === 0 && state.coverUrl) text = `[IMG:${state.coverUrl}]\n\n` + text;
         }
-        
         renderText(text);
         
         ui.orig.classList.remove('page-anim');
-        void ui.orig.offsetWidth;
+        void ui.orig.offsetWidth; 
         ui.orig.classList.add('page-anim');
-        
-        ui.orig.scrollTop = 0; 
-        ui.trans.scrollTop = 0;
-        
-        if (scrollTop > 0) {
-            setTimeout(() => { ui.orig.scrollTop = scrollTop; }, 50);
-        }
+        ui.orig.scrollTop = 0; ui.orig.scrollLeft = 0;
+        if (scrollTop > 0) setTimeout(() => { ui.orig.scrollTop = scrollTop; }, 50);
 
-        setupTranslationObserver();
-    } catch(e) { 
-        renderText("Ошибка отображения главы: " + e.message); 
-    } finally { 
-        hideLoad(); 
-    }
+        restoreChapterTranslations();
+    } catch(e) { renderText("Ошибка: " + e.message); } finally { hideLoad(); }
 }
 
-// --- Rendering ---
-
-function renderText(txt) {
-    ui.orig.innerHTML = ''; 
-    ui.trans.innerHTML = ''; 
-    ui.orig.scrollTop = 0;
-
-    const arr = txt.split(/\n\s*\n/).filter(x => x.trim().length > 0);
-    
-    const f1 = document.createDocumentFragment(); 
-    const f2 = document.createDocumentFragment();
-    
-    arr.forEach(s => {
-        const imgMatch = s.match(/^\[IMG:(.+?)\]$/);
-        
-        if (imgMatch) {
-            const imgSrc = imgMatch[1];
-            const createImgBtn = () => { 
-                const div = document.createElement('div'); 
-                div.className = 'image-stub'; 
-                div.dataset.src = imgSrc; 
-                div.innerHTML = `<img class="preview" src="${imgSrc}" loading="lazy"><span>📷 Просмотр</span>`; 
-                return div; 
-            };
-            f1.appendChild(createImgBtn()); 
-            f2.appendChild(createImgBtn());
-        } else {
-            // ОПТИМИЗАЦИЯ: Рендерим чистый текст без span для каждого слова
-            const d1 = document.createElement('div'); 
-            d1.className = 'orig-p'; 
-            d1.textContent = s; 
-            f1.appendChild(d1);
-            
-            const d2 = document.createElement('div'); 
-            d2.className = 'trans-p'; 
-            d2.dataset.text = s; 
-            d2.innerHTML = `<button class="para-tts-btn">🔊</button><span class="trans-content">${s}</span>`; 
-            f2.appendChild(d2);
-        }
-    });
-    
-    ui.orig.appendChild(f1); 
-    ui.trans.appendChild(f2);
-}
-
-function setupTranslationObserver() {
-    if (state.translationObserver) state.translationObserver.disconnect();
-    
-    const src = ui.srcLang.value; 
-    const tgt = ui.tgtLang.value;
-    
+function restoreChapterTranslations() {
+    if (state.translationObserver) { state.translationObserver.disconnect(); }
+    const src = ui.srcLang.value; const tgt = ui.tgtLang.value;
     state.translationObserver = new IntersectionObserver((entries, observer) => {
         entries.forEach(async (entry) => {
             if (entry.isIntersecting) {
-                const el = entry.target; 
-                observer.unobserve(el);
-                
-                const text = el.dataset.text; 
-                if (!text) return;
-                
+                const el = entry.target; observer.unobserve(el);
+                const text = el.dataset.text; if (!text) return;
                 try {
                     const t = await getCachedTranslation(text, src, tgt);
                     if (t && el.isConnected && !el.classList.contains('translated')) {
-                        requestAnimationFrame(() => { 
-                             applyTranslation(el, t);
-                        });
+                        requestAnimationFrame(() => { el.innerHTML = `<button class="para-tts-btn">🔊</button>${t}`; el.classList.add('translated'); });
                     }
-                } catch (e) { console.warn(e); }
+                } catch (e) { }
             }
         });
-    }, { root: ui.trans, rootMargin: '300px' });
-    
-    const els = ui.trans.querySelectorAll('.trans-p:not(.translated):not(.image-stub)');
+    }, { root: ui.trans, rootMargin: '500px' });
+    const els = document.querySelectorAll('.trans-p:not(.translated):not(.image-stub)');
     els.forEach(el => state.translationObserver.observe(el));
 }
 
-function applyTranslation(el, text) {
-    const btn = el.querySelector('.para-tts-btn');
-    if(btn) {
-        while(el.childNodes.length > 1) { el.removeChild(el.lastChild); }
-        el.insertAdjacentText('beforeend', text);
-    } else {
-        el.innerHTML = `<button class="para-tts-btn">🔊</button>${text}`;
-    }
-    el.classList.add('translated');
-}
-
-// --- Sync & Scroll (FIXED) ---
-
-function setupSync() {
-    state.isSyncing = false;
-
-    const sync = (source, target) => {
-        if (state.isSyncing) return;
-        
-        state.isSyncing = true;
-        
-        const sourceParas = Array.from(source.children);
-        const targetParas = Array.from(target.children);
-        
-        if (sourceParas.length === 0 || targetParas.length === 0) {
-            state.isSyncing = false;
-            return;
-        }
-
-        const sourceTop = source.scrollTop;
-        const sourceHeight = source.clientHeight;
-        const sourceCenter = sourceTop + (sourceHeight / 3); 
-
-        let activeIdx = -1;
-        
-        for (let i = 0; i < sourceParas.length; i++) {
-            const p = sourceParas[i];
-            const pTop = p.offsetTop;
-            const pBottom = pTop + p.clientHeight;
-
-            if (pTop <= sourceCenter && pBottom >= sourceCenter) {
-                activeIdx = i;
-                break;
-            }
-        }
-
-        if (activeIdx !== -1 && targetParas[activeIdx]) {
-            const targetEl = targetParas[activeIdx];
-            const sourceEl = sourceParas[activeIdx];
-            
-            // Вычисляем смещение внутри абзаца
-            let ratio = 0;
-            if (sourceEl.clientHeight > 0) {
-                 ratio = (sourceTop - sourceEl.offsetTop) / sourceEl.clientHeight;
-            }
-            const safeRatio = Math.max(0, Math.min(1, ratio));
-            const targetScrollY = targetEl.offsetTop + (targetEl.clientHeight * safeRatio);
-            
-            target.scrollTop = targetScrollY;
-        }
-
-        setTimeout(() => { state.isSyncing = false; }, 100);
-        
-        if (source === ui.orig) saveProgress();
-    };
-
-    ui.orig.onscroll = () => sync(ui.orig, ui.trans);
-    ui.trans.onscroll = () => sync(ui.trans, ui.orig);
-}
-
-// --- Resize Logic ---
-
-function setupResizer() {
-    let isResizing = false;
-    let rAF = null;
-
-    const start = (e) => { 
-        isResizing = true; 
-        if(e.type === 'touchstart') e.preventDefault(); 
-        ui.resizer.classList.add('active'); 
-    };
-    const stop = () => { 
-        isResizing = false; 
-        ui.resizer.classList.remove('active'); 
-        if(rAF) cancelAnimationFrame(rAF);
-    };
-    
-    const move = (e) => {
-        if(!isResizing) return;
-        if(rAF) return;
-
-        rAF = requestAnimationFrame(() => {
-            let clientY = e.type.startsWith('touch') ? e.touches[0].clientY : e.clientY;
-            let clientX = e.type.startsWith('touch') ? e.touches[0].clientX : e.clientX;
-            const rect = ui.container.getBoundingClientRect();
-            
-            let pct;
-            if(state.isVertical) {
-                pct = ((clientY - rect.top) / rect.height) * 100;
-            } else {
-                pct = ((clientX - rect.left) / rect.width) * 100;
-            }
-            
-            if(pct > 10 && pct < 90) {
-                ui.panel1.style.flex = `0 0 ${pct}%`;
-            }
-            rAF = null;
-        });
-    };
-
-    ui.resizer.addEventListener('mousedown', start);
-    ui.resizer.addEventListener('touchstart', start);
-    
-    document.addEventListener('mouseup', stop);
-    document.addEventListener('touchend', stop);
-    
-    document.addEventListener('mousemove', move);
-    document.addEventListener('touchmove', move);
-}
-
-// --- Interaction Logic ---
-
-async function handleGlobalClicks(e) {
-    const target = e.target;
-
-    // 1. Клик по картинке
-    if (target.closest('.image-stub')) { 
-        const stub = target.closest('.image-stub'); 
-        if(stub.dataset.src) openImageModal(stub.dataset.src); 
-        return;
-    }
-    
-    // 2. TTS кнопка
-    if(target.classList.contains('para-tts-btn')) { 
-        e.stopPropagation(); 
-        const p = target.closest('.trans-p'); 
-        
-        if(!p.classList.contains('translated')) {
-            const success = await doTrans(p);
-            if(!success) return;
-        }
-        
-        const textToRead = p.innerText.replace('🔊', '').trim();
-        await playFullAudio(textToRead, ui.tgtLang.value); 
-        return;
-    }
-    
-    // 3. Перевод абзаца по клику
-    if(target.closest('.trans-p') && !target.closest('.image-stub')) { 
-        doTrans(target.closest('.trans-p')); 
-        return;
-    }
-    
-    // 4. Клик по слову в оригинале (умное выделение)
-    if(target.closest('.orig-p')) {
-        handleWordClick(e);
-        return;
-    }
-
-    // 5. Закрытие тултипа
-    if(target.classList.contains('close-tip') || (!target.closest('#tooltip') && ui.tooltip.style.display === 'block')) {
-         ui.tooltip.style.display = 'none'; 
-    }
-}
-
-function handleWordClick(e) {
-    const sel = window.getSelection();
-    if (sel.toString().length > 1) return;
-
-    if (sel.isCollapsed) {
-        sel.modify("move", "forward", "character");
-        sel.modify("move", "backward", "word");
-        sel.modify("extend", "forward", "word");
-    }
-    
-    const word = sel.toString().trim();
-    if (word && /^[a-zA-Zа-яА-Я0-9\u00C0-\u00FF'-]+$/.test(word)) {
-        showTooltip(e.target, word); 
-    }
-}
-
-// --- Translation & TTS Logic (FIXED) ---
-
-async function doTrans(el) {
-    if(el.classList.contains('translated')) return true;
-    
-    el.classList.add('loading', 'current');
-    const text = el.dataset.text;
-    const src = ui.srcLang.value;
-    const tgt = ui.tgtLang.value;
-    
-    try {
-        let t = await getCachedTranslation(text, src, tgt);
-        if (!t) {
-            t = await translateApi(text, src, tgt);
-            if (t) await saveCachedTranslation(text, src, tgt, t);
-        }
-        applyTranslation(el, t);
-        return true;
-    } catch (e) { 
-        el.classList.add('error'); 
-        return false; 
-    } finally { 
-        el.classList.remove('loading', 'current'); 
-    }
-}
-
-async function playFullAudio(text, lang) {
-    stopAudio();
-    showGlobalStop(true);
-    state.isAudioPlaying = true;
-
-    const provider = ui.voiceSrc.value;
-    const rate = ui.rateRange ? parseFloat(ui.rateRange.value) : 1.0;
-    
-    const cleanText = text.replace(/🔊/g, '').trim();
-    if (!cleanText) {
-        showGlobalStop(false);
-        state.isAudioPlaying = false;
-        return;
-    }
-
-    if (provider === 'google') {
-        // Разбивка: предложения или весь текст, если точек нет
-        let chunks = cleanText.match(/[^.!?]+[.!?]+|[^.!?]+$/g);
-        if (!chunks) chunks = [cleanText];
-
-        for (let chunk of chunks) {
-            if (!state.isWorking && !state.isAudioPlaying) break;
-            
-            chunk = chunk.trim();
-            if (chunk.length === 0) continue;
-
-            // Если кусок слишком длинный для Google, бьем его еще мельче
-            if (chunk.length > 180) {
-                const subChunks = chunk.match(/.{1,180}(?:\s|$)/g) || [chunk];
-                for (let sub of subChunks) {
-                    if (!state.isWorking && !state.isAudioPlaying) break;
-                    await playGoogleSingle(sub, lang, rate);
-                }
-            } else {
-                await playGoogleSingle(chunk, lang, rate);
-            }
-        }
-    } else {
-        // Нативное устройство
-        let gender = 'f';
-        if (lang.startsWith('ru')) gender = ui.voiceRu.value;
-        else if (lang.startsWith('en')) gender = ui.voiceEn.value;
-        else if (lang.startsWith('de')) gender = ui.voiceDe.value;
-        await speakDevice(cleanText, lang, gender, provider, rate);
-    }
-    
-    state.isAudioPlaying = false;
-    showGlobalStop(false);
-}
-
-// --- Helpers ---
-
-async function startTranslation() {
-    if(state.isWorking) return;
-    state.isWorking = true;
-    updateWorkButtons(true);
-    
-    const els = Array.from(ui.trans.querySelectorAll('.trans-p:not(.image-stub)'));
-    const idx = getStartIndex(els);
-    
-    for(let i = idx; i < els.length; i++) {
-        if(!state.isWorking) break;
-        if(!els[i].classList.contains('translated')) {
-            await doTrans(els[i]);
-            els[i].scrollIntoView({behavior:"smooth", block:"center"});
-            await sleep(400);
-        }
-    }
-    stopAllWork();
-}
-
-async function startReading() {
-    if(state.isWorking) return;
-    state.isWorking = true;
-    updateWorkButtons(true);
-    
-    const els = Array.from(ui.trans.querySelectorAll('.trans-p:not(.image-stub)'));
-    const idx = getStartIndex(els);
-    const lang = ui.tgtLang.value;
-    
-    for(let i = idx; i < els.length; i++) {
-        if(!state.isWorking) break;
-        const el = els[i];
-        
-        if(!el.classList.contains('translated')) {
-            await doTrans(el);
-            await sleep(300);
-        }
-        
-        document.querySelectorAll('.trans-p.reading').forEach(e => e.classList.remove('reading'));
-        el.classList.add('reading');
-        el.scrollIntoView({behavior:"smooth", block:"center"});
-        
-        const btn = el.querySelector('.para-tts-btn');
-        if(btn) btn.classList.add('playing');
-        
-        const txt = el.innerText.replace('🔊','').trim();
-        await playFullAudio(txt, lang);
-        
-        if(btn) btn.classList.remove('playing');
-        await sleep(200);
-    }
-    stopAllWork();
-}
-
-function stopAllWork() {
-    state.isWorking = false;
-    state.isAudioPlaying = false;
-    stopAudio();
-    updateWorkButtons(false);
-    showGlobalStop(false);
-    document.querySelectorAll('.playing').forEach(el => el.classList.remove('playing'));
-    document.querySelectorAll('.trans-p.reading').forEach(e => e.classList.remove('reading'));
-}
-
-function updateWorkButtons(working) {
-    ui.btnStart.disabled = working;
-    ui.btnRead.disabled = working;
-    ui.btnStop.disabled = !working;
-}
-
-function getStartIndex(elements) {
-    const top = ui.trans.scrollTop;
-    let idx = elements.findIndex(b => b.offsetTop + b.clientHeight > top);
-    return idx === -1 ? 0 : idx;
-}
-
-async function showTooltip(targetEl, text) {
-    // Координаты
-    const rect = targetEl.getBoundingClientRect();
-    const sel = window.getSelection();
-    let left = rect.left;
-    let top = rect.bottom;
-    
-    if (sel.rangeCount > 0) {
-        const range = sel.getRangeAt(0).getBoundingClientRect();
-        left = range.left;
-        top = range.bottom;
-    }
-
-    if (left + 250 > window.innerWidth) left = window.innerWidth - 260;
-    if (left < 10) left = 10;
-
-    ui.tooltip.style.top = (top + 5) + 'px';
-    ui.tooltip.style.left = left + 'px';
-    ui.tooltip.style.display = 'block';
-    
-    ui.tooltip.innerHTML = `<span class="t-word">${text}</span><span>⏳...</span>`;
-
-    try {
-        const lang = ui.srcLang.value;
-        const [trans, phon] = await Promise.all([
-            translateApi(text, lang, ui.tgtLang.value),
-            fetchPhonetics(text, lang)
-        ]);
-        
-        const targetLang = lang === 'auto' ? 'en' : lang;
-        
-        ui.tooltip.innerHTML = `
-            <div class="tt-header">
-                <span class="t-word">${text}</span>
-                <button class="t-tts-btn">🔊</button>
-            </div>
-            ${phon.ipa ? `<span class="t-ipa">[${phon.ipa}]</span>` : ''} 
-            ${phon.cyr ? `<span class="t-rus">"${phon.cyr}"</span>` : ''}
-            <span class="t-trans">${trans}</span>
-            <button class="close-tip">X</button>
-        `;
-        
-        ui.tooltip.querySelector('.t-tts-btn').onclick = async (e) => { 
-            e.stopPropagation(); 
-            e.target.classList.add('playing'); 
-            // Передаем точное слово для озвучки
-            await playFullAudio(text, targetLang); 
-            e.target.classList.remove('playing'); 
-        };
-    } catch(e) {
-        ui.tooltip.innerHTML = "Ошибка перевода";
-    }
-}
-
-// Navigation Zones & Swipe
 function setupNavigationZones() {
-    const nav = (dir) => {
-        const amount = window.innerHeight * 0.8;
+    const handleZoneClick = (direction) => {
+        const scrollAmount = window.innerHeight * 0.8;
         const el = ui.orig;
-        
-        if (dir === 1 && el.scrollTop + el.clientHeight >= el.scrollHeight - 50) {
-            loadChapter(state.currentIdx + 1);
-        } else if (dir === -1 && el.scrollTop <= 0) {
-            loadChapter(state.currentIdx - 1);
-        } else {
-            el.scrollBy({ top: amount * dir, behavior: 'smooth' });
-        }
+        if (direction === 1 && el.scrollTop + el.clientHeight >= el.scrollHeight - 50) loadChapter(state.currentIdx + 1);
+        else if (direction === -1 && el.scrollTop <= 0) loadChapter(state.currentIdx - 1);
+        else el.scrollBy({ top: scrollAmount * direction, behavior: 'smooth' });
     };
-    if(ui.zoneRight) ui.zoneRight.onclick = (e) => { e.stopPropagation(); nav(1); };
-    if(ui.zoneLeft) ui.zoneLeft.onclick = (e) => { e.stopPropagation(); nav(-1); };
+    if(ui.zoneRight) ui.zoneRight.onclick = (e) => { e.stopPropagation(); handleZoneClick(1); };
+    if(ui.zoneLeft) ui.zoneLeft.onclick = (e) => { e.stopPropagation(); handleZoneClick(-1); };
 }
 
 function setupSwipeGestures() {
-    let tsX = 0, tsY = 0;
-    ui.container.addEventListener('touchstart', (e) => { tsX = e.changedTouches[0].screenX; tsY = e.changedTouches[0].screenY; }, {passive: true});
+    let touchStartX = 0, touchStartY = 0;
+    ui.container.addEventListener('touchstart', (e) => { touchStartX = e.changedTouches[0].screenX; touchStartY = e.changedTouches[0].screenY; }, {passive: true});
     ui.container.addEventListener('touchend', (e) => {
-        const dx = e.changedTouches[0].screenX - tsX;
-        const dy = e.changedTouches[0].screenY - tsY;
+        const dx = e.changedTouches[0].screenX - touchStartX;
+        const dy = e.changedTouches[0].screenY - touchStartY;
         if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 60) {
             if (dx < 0) loadChapter(state.currentIdx + 1); 
             else loadChapter(state.currentIdx - 1);
@@ -887,92 +344,50 @@ function setupSwipeGestures() {
     }, {passive: true});
 }
 
-function setupSelectionBar() {
-    let selTimeout;
-    document.addEventListener('selectionchange', () => {
-        clearTimeout(selTimeout);
-        selTimeout = setTimeout(() => {
-            const sel = window.getSelection();
-            if(!sel.rangeCount) return;
-            const txt = sel.toString().trim();
-            
-            if(txt.length > 1 && ui.orig.contains(sel.anchorNode)) {
-                ui.selBar.classList.add('visible');
-                ui.selBtn.dataset.text = txt;
-            } else {
-                ui.selBar.classList.remove('visible');
-            }
-        }, 300);
-    });
-    
-    if(ui.selBtn) {
-        ui.selBtn.onclick = (e) => {
-            e.preventDefault(); e.stopPropagation();
-            const txt = ui.selBtn.dataset.text;
-            if(txt) {
-                showPopupPhrase(txt);
-                ui.selBar.classList.remove('visible');
-            }
-        };
-    }
-}
+function saveProgress(chapterIdx, scrollTop) { clearTimeout(state.saveTimeout); state.saveTimeout = setTimeout(() => { saveProgressNow(chapterIdx, scrollTop); }, 1000); }
+function saveProgressNow(chapterIdx, scrollTop) { if (!state.currentBookId) return; const ch = (chapterIdx !== undefined) ? chapterIdx : state.currentIdx; const scr = (scrollTop !== undefined) ? scrollTop : ui.orig.scrollTop; updateBookProgress(state.currentBookId, ch, scr); }
 
-async function showPopupPhrase(text) {
-    ui.tooltip.style.display='block';
-    ui.tooltip.style.top='50%';
-    ui.tooltip.style.left='50%';
-    ui.tooltip.style.transform='translate(-50%,-50%)';
-    ui.tooltip.style.maxWidth='80%';
-    ui.tooltip.innerHTML = `<span class="t-word">${text.substring(0,50)}...</span><span>⏳</span>`;
-    
-    try {
-        const trans = await translateApi(text, ui.srcLang.value, ui.tgtLang.value);
-        const safeText = text.replace(/'/g, "\\'").replace(/\n/g, ' ');
-        const lang = ui.srcLang.value === 'auto' ? 'en' : ui.srcLang.value;
-        
-        ui.tooltip.innerHTML = `
-            <div class="tt-header">
-                <span class="t-word">${text.substring(0,30)}...</span>
-                <button class="t-tts-btn">🔊</button>
-            </div>
-            <span class="t-trans">${trans}</span>
-            <button class="close-tip">X</button>
-        `;
-        
-        ui.tooltip.querySelector('.t-tts-btn').onclick = async (e) => {
-            e.stopPropagation(); e.target.classList.add('playing');
-            await playFullAudio(safeText, lang);
-            e.target.classList.remove('playing');
-        };
-    } catch(e) {
-        ui.tooltip.innerHTML="Error";
-    }
+function renderText(txt) {
+    ui.orig.innerHTML = ''; ui.trans.innerHTML = ''; ui.orig.scrollTop = 0;
+    const arr = txt.split(/\n\s*\n/).filter(x => x.trim().length > 0);
+    const f1 = document.createDocumentFragment(); const f2 = document.createDocumentFragment();
+    arr.forEach(s => {
+        const imgMatch = s.match(/^\[IMG:(.+?)\]$/);
+        if (imgMatch) {
+            const imgSrc = imgMatch[1];
+            const createImgBtn = () => { const div = document.createElement('div'); div.className = 'image-stub'; div.dataset.src = imgSrc; div.innerHTML = `<img class="preview" src="${imgSrc}"><span>📷 Просмотр</span>`; return div; };
+            f1.appendChild(createImgBtn()); f2.appendChild(createImgBtn());
+        } else {
+            const d1 = document.createElement('div'); d1.className = 'orig-p'; d1.innerHTML = s.replace(/([a-zA-Zа-яА-Я0-9\u00C0-\u00FF'-]+)/g, '<span class="word" data-word="$1">$1</span>'); f1.appendChild(d1);
+            const d2 = document.createElement('div'); d2.className = 'trans-p'; d2.dataset.text = s; d2.innerHTML = `<button class="para-tts-btn">🔊</button>${s}`; f2.appendChild(d2);
+        }
+    });
+    ui.orig.appendChild(f1); ui.trans.appendChild(f2);
 }
 
 function openImageModal(src) { if(ui.modalImg && ui.imageModal) { ui.modalImg.src = src; ui.imageModal.classList.add('visible'); } }
 function closeImageModal() { if(ui.imageModal) ui.imageModal.classList.remove('visible'); setTimeout(() => { if(ui.modalImg) ui.modalImg.src = ""; }, 300); }
+async function handleGlobalClicks(e) {
+    if (e.target.closest('.image-stub')) { const stub = e.target.closest('.image-stub'); if(stub.dataset.src) openImageModal(stub.dataset.src); }
+    else if(e.target.classList.contains('word')) { showTooltip(e.target, e.target.dataset.word); }
+    else if(e.target.classList.contains('para-tts-btn')) { e.stopPropagation(); const p = e.target.closest('.trans-p'); if(!p.classList.contains('translated')) await doTrans(p); stopAudio(); state.isAudioPlaying = true; e.target.classList.add('playing'); await playFullAudio(p.innerText.replace('🔊', '').trim(), ui.tgtLang.value); e.target.classList.remove('playing'); showGlobalStop(false); state.isAudioPlaying = false; }
+    else if(e.target.closest('.trans-p') && !e.target.classList.contains('para-tts-btn') && !e.target.closest('.image-stub')) { doTrans(e.target.closest('.trans-p')); }
+    else if(e.target.classList.contains('close-tip') || (!e.target.closest('#tooltip') && ui.tooltip.style.display === 'block') && e.target.id !== 'translateSelBtn') { ui.tooltip.style.display = 'none'; document.querySelectorAll('.word.active').forEach(x => x.classList.remove('active')); }
+}
+function stopAllWork() { state.isWorking = false; state.isAudioPlaying = false; ui.btnStart.disabled = false; ui.btnRead.disabled = false; ui.btnStop.disabled = true; stopAudio(); showGlobalStop(false); document.querySelectorAll('.playing').forEach(el => el.classList.remove('playing')); document.querySelectorAll('.trans-p.reading').forEach(e => e.classList.remove('reading')); }
+async function startTranslation() { if(state.isWorking) return; state.isWorking = true; ui.btnStart.disabled = true; ui.btnStop.disabled = false; const els = Array.from(document.querySelectorAll('.trans-p:not(.image-stub)')); const idx = getStartIndex(); for(let i=idx; i<els.length; i++) { if(!state.isWorking) break; if(!els[i].classList.contains('translated')) { await doTrans(els[i]); els[i].scrollIntoView({behavior:"smooth", block:"center"}); await sleep(400); } } stopAllWork(); }
+async function startReading() { if(state.isWorking) return; state.isWorking = true; ui.btnStart.disabled = true; ui.btnStop.disabled = false; const els = Array.from(document.querySelectorAll('.trans-p:not(.image-stub)')); const idx = getStartIndex(); const lang = ui.tgtLang.value; for(let i=idx; i<els.length; i++) { if(!state.isWorking) break; const el = els[i]; if(!el.classList.contains('translated')) { await doTrans(el); await sleep(300); } document.querySelectorAll('.trans-p.reading').forEach(e => e.classList.remove('reading')); el.classList.add('reading'); el.scrollIntoView({behavior:"smooth", block:"center"}); const btn = el.querySelector('.para-tts-btn'); if(btn) btn.classList.add('playing'); await playFullAudio(el.innerText.replace('🔊','').trim(), lang); if(btn) btn.classList.remove('playing'); await sleep(200); } stopAllWork(); }
+async function doTrans(el) { if(el.classList.contains('translated')) return true; el.classList.add('loading', 'current'); const text = el.dataset.text; const src = ui.srcLang.value; const tgt = ui.tgtLang.value; try { let t = await getCachedTranslation(text, src, tgt); if (!t) { t = await translateApi(text, src, tgt); if (t) await saveCachedTranslation(text, src, tgt, t); } el.innerHTML = `<button class="para-tts-btn">🔊</button>${t}`; el.classList.add('translated'); return true; } catch (e) { el.classList.add('error'); return false; } finally { el.classList.remove('loading', 'current'); } }
+async function playFullAudio(text, lang) { showGlobalStop(true); const provider = ui.voiceSrc.value; const rateEl = document.getElementById('rateRange'); const rate = rateEl ? parseFloat(rateEl.value) : 1.0; if (provider === 'google') { const chunks = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text]; for (let chunk of chunks) { if(!state.isWorking && !state.isAudioPlaying) break; chunk = chunk.trim(); if(!chunk) continue; if (chunk.length > 180) { const sub = chunk.match(/.{1,180}(?:\s|$)/g); if(sub) { for(let s of sub) await playGoogleSingle(s, lang, rate); continue; } } await playGoogleSingle(chunk, lang, rate); } } else { let gender = 'f'; if (lang.startsWith('ru')) gender = ui.voiceRu.value; else if (lang.startsWith('en')) gender = ui.voiceEn.value; else if (lang.startsWith('de')) gender = ui.voiceDe.value; await speakDevice(text, lang, gender, provider, rate); } if(!state.isWorking) showGlobalStop(false); }
+async function showTooltip(el, text) { document.querySelectorAll('.word.active').forEach(x => x.classList.remove('active')); el.classList.add('active'); const rect = el.getBoundingClientRect(); ui.tooltip.style.top = (rect.bottom + 5) + 'px'; let l = rect.left; if (l + 250 > window.innerWidth) l = window.innerWidth - 260; ui.tooltip.style.left = l + 'px'; ui.tooltip.style.transform = 'none'; ui.tooltip.style.display = 'block'; ui.tooltip.innerHTML = `<span class="t-word">${text}</span><span>⏳</span>`; try { const lang = ui.srcLang.value; const [trans, phon] = await Promise.all([ translateApi(text, lang, ui.tgtLang.value), fetchPhonetics(text, lang) ]); const targetLang = lang === 'auto' ? 'en' : lang; ui.tooltip.innerHTML = `<div class="tt-header"><span class="t-word">${text}</span><button class="t-tts-btn">🔊</button></div>${phon.ipa ? `<span class="t-ipa">[${phon.ipa}]</span>` : ''} ${phon.cyr ? `<span class="t-rus">"${phon.cyr}"</span>` : ''}<span class="t-trans">${trans}</span><button class="close-tip">X</button>`; ui.tooltip.querySelector('.t-tts-btn').onclick = async (e) => { e.stopPropagation(); e.target.classList.add('playing'); await playFullAudio(text, targetLang); e.target.classList.remove('playing'); }; } catch(e) { ui.tooltip.innerHTML = "Error"; } }
+let selText = "", selTimeout; function setupSelectionBar() { document.addEventListener('selectionchange', () => { clearTimeout(selTimeout); selTimeout = setTimeout(() => { const sel = window.getSelection(); const txt = sel.toString().trim(); if(txt && txt.length > 1 && ui.orig.contains(sel.anchorNode)) { selText = txt; ui.selBar.classList.add('visible'); } else { ui.selBar.classList.remove('visible'); } }, 300); }); if(ui.selBtn) { ui.selBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); if(selText) { showPopupPhrase(selText); ui.selBar.classList.remove('visible'); }}; } }
+async function showPopupPhrase(text) { ui.tooltip.style.display='block'; ui.tooltip.style.top='50%'; ui.tooltip.style.left='50%'; ui.tooltip.style.transform='translate(-50%,-50%)'; ui.tooltip.style.maxWidth='80%'; ui.tooltip.innerHTML=`<span class="t-word">${text.substring(0,50)}...</span><span>⏳</span>`; try { const trans = await translateApi(text, ui.srcLang.value, ui.tgtLang.value); const safeText = text.replace(/'/g, "\\'").replace(/\n/g, ' '); const lang = ui.srcLang.value === 'auto' ? 'en' : ui.srcLang.value; ui.tooltip.innerHTML = `<div class="tt-header"><span class="t-word">${text.substring(0,30)}...</span><button class="t-tts-btn">🔊</button></div><span class="t-trans">${trans}</span><button class="close-tip">X</button>`; ui.tooltip.querySelector('.t-tts-btn').onclick = async (e) => { e.stopPropagation(); e.target.classList.add('playing'); await playFullAudio(safeText, lang); e.target.classList.remove('playing'); }; } catch(e) { ui.tooltip.innerHTML="Error"; } }
+function setupResizer() { let isResizing = false; const startResize = (e) => { isResizing = true; if(e.type === 'touchstart') e.preventDefault(); ui.resizer.classList.add('active'); }; const stopResize = () => { isResizing = false; ui.resizer.classList.remove('active'); }; const doResize = (e) => { if(!isResizing) return; let cy = e.type.startsWith('touch') ? e.touches[0].clientY : e.clientY; let cx = e.type.startsWith('touch') ? e.touches[0].clientX : e.clientX; const r = ui.container.getBoundingClientRect(); if(state.isVertical) { let pct = ((cy - r.top) / r.height) * 100; if(pct > 10 && pct < 90) { ui.panel1.style.flex = `0 0 ${pct}%`; ui.panel2.style.flex = '1'; } } else { let pct = ((cx - r.left) / r.width) * 100; if(pct > 10 && pct < 90) { ui.panel1.style.flex = `0 0 ${pct}%`; ui.panel2.style.flex = '1'; } } }; ui.resizer.addEventListener('mousedown', startResize); document.addEventListener('mouseup', stopResize); document.addEventListener('mousemove', doResize); ui.resizer.addEventListener('touchstart', startResize); document.addEventListener('touchend', stopResize); document.addEventListener('touchmove', doResize); }
 function toggleLayout() { state.isVertical = !state.isVertical; updateLayoutUI(); }
-function updateLayoutUI() { 
-    if (state.isVertical) { 
-        ui.container.style.flexDirection = 'column'; 
-        ui.resizer.style.cssText = 'width:100%; height:12px; cursor:row-resize;'; 
-        ui.layoutBtn.innerText = '⬍'; 
-    } else { 
-        ui.container.style.flexDirection = 'row'; 
-        ui.resizer.style.cssText = 'width:12px; height:100%; cursor:col-resize;'; 
-        ui.layoutBtn.innerText = '⬄'; 
-    } 
-    ui.panel1.style.flex = '1'; ui.panel2.style.flex = '1'; 
-}
-
-function saveProgress(ch, sc) { clearTimeout(state.saveTimeout); state.saveTimeout = setTimeout(() => saveProgressNow(ch, sc), 1000); }
-function saveProgressNow(ch, sc) { 
-    if (!state.currentBookId) return; 
-    const c = (ch !== undefined) ? ch : state.currentIdx; 
-    const s = (sc !== undefined) ? sc : ui.orig.scrollTop; 
-    updateBookProgress(state.currentBookId, c, s); 
-}
-
+function updateLayoutUI() { if (state.isVertical) { ui.container.style.flexDirection = 'column'; ui.resizer.style.width = '100%'; ui.resizer.style.height = '12px'; ui.resizer.style.cursor = 'row-resize'; ui.layoutBtn.innerText = '⬍'; } else { ui.container.style.flexDirection = 'row'; ui.resizer.style.width = '12px'; ui.resizer.style.height = '100%'; ui.resizer.style.cursor = 'col-resize'; ui.layoutBtn.innerText = '⬄'; } ui.panel1.style.flex = '1'; ui.panel2.style.flex = '1'; }
+function getStartIndex() { const blocks = Array.from(document.querySelectorAll('.trans-p:not(.image-stub)')); const top = ui.trans.scrollTop; let idx = blocks.findIndex(b => b.offsetTop + b.clientHeight > top); return idx === -1 ? 0 : idx; }
+function setupSync() { ui.orig.onscroll = () => { if(state.t_sync) return; state.t_sync = requestAnimationFrame(() => { syncScroll(ui.orig, ui.trans); state.t_sync = null; saveProgress(); }); }; ui.trans.onscroll = () => { if(state.t_sync) return; state.t_sync = requestAnimationFrame(() => { syncScroll(ui.trans, ui.orig); state.t_sync = null; }); }; }
+const syncScroll = (a, b) => { if(a.scrollHeight - a.clientHeight > 0) b.scrollTop = (a.scrollTop / (a.scrollHeight - a.clientHeight)) * (b.scrollHeight - b.clientHeight); };
 const setStatus = (msg) => ui.status.innerText = msg;
 const showLoad = () => ui.loader.style.display = 'flex';
 const hideLoad = () => ui.loader.style.display = 'none';
