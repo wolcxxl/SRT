@@ -30,14 +30,26 @@ export function getBestVoice(lang, genderPref, mode) {
 }
 
 export function stopAudio() {
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    // 1. Сначала отменяем таймеры
+    if (speechTimeout) { clearTimeout(speechTimeout); speechTimeout = null; }
+
+    // 2. Останавливаем нативный синтез
+    if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+    }
+    
+    // 3. Останавливаем Google Audio
     if (currentAudio) {
         currentAudio.pause();
         currentAudio.src = ""; 
         currentAudio = null;
     }
-    if (speechTimeout) { clearTimeout(speechTimeout); speechTimeout = null; }
-    if (audioResolve) { audioResolve(); audioResolve = null; }
+    
+    // 4. Сбрасываем промис (освобождаем очередь)
+    if (audioResolve) {
+        audioResolve();
+        audioResolve = null;
+    }
 }
 
 export function playGoogleSingle(text, lang, rate) {
@@ -45,12 +57,12 @@ export function playGoogleSingle(text, lang, rate) {
         stopAudio(); 
         audioResolve = resolve;
 
-        // Тайм-аут 6 секунд. Если интернет медленный, лучше упасть в ошибку и прочитать нативным голосом.
+        // Если Google тупит дольше 6 секунд — сбрасываем
         const failTimeout = setTimeout(() => {
             reject("Timeout"); 
         }, 6000); 
 
-        // ИСПОЛЬЗУЕМ ДРУГОЙ КЛИЕНТ (GTX) - он реже блокируется
+        // client=gtx работает стабильнее, чем tw-ob
         const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=${lang}&client=gtx&dt=t`;
         
         const audio = new Audio(url);
@@ -66,14 +78,13 @@ export function playGoogleSingle(text, lang, rate) {
         audio.onerror = (e) => {
             clearTimeout(failTimeout);
             currentAudio = null;
-            // Возвращаем ошибку, но НЕ ПАНИКУЕМ. App.js решит, что делать.
-            console.warn("Google TTS chunk failed (404/Network)");
+            // Реджектим промис, чтобы app.js переключился на Device
             reject("Google Error"); 
         };
 
         audio.play().catch(e => {
             clearTimeout(failTimeout);
-            reject(e);
+            reject(e); // Ошибка автоплея или сети
         });
     });
 }
@@ -81,33 +92,50 @@ export function playGoogleSingle(text, lang, rate) {
 export function speakDevice(text, lang, gender, mode, rate) {
     return new Promise((resolve) => {
         if (!window.speechSynthesis) { resolve(); return; }
+        
+        // ВАЖНО: Останавливаем предыдущее и ждем 50мс перед стартом нового.
+        // Это лечит ошибку "interrupted" на мобильных.
         window.speechSynthesis.cancel();
-        audioResolve = resolve;
+        
+        setTimeout(() => {
+            audioResolve = resolve;
 
-        const u = new SpeechSynthesisUtterance(text);
-        let targetLang = lang;
-        if (lang === 'en') targetLang = 'en-US';
-        if (lang === 'de') targetLang = 'de-DE';
-        if (lang === 'ru') targetLang = 'ru-RU';
+            const u = new SpeechSynthesisUtterance(text);
+            let targetLang = lang;
+            if (lang === 'en') targetLang = 'en-US';
+            if (lang === 'de') targetLang = 'de-DE';
+            if (lang === 'ru') targetLang = 'ru-RU';
 
-        const voice = getBestVoice(targetLang, gender, mode);
-        if (voice) u.voice = voice;
-        u.lang = targetLang;
-        u.rate = rate;
+            const voice = getBestVoice(targetLang, gender, mode);
+            if (voice) u.voice = voice;
+            
+            u.lang = targetLang;
+            u.rate = rate;
 
-        u.onend = () => { if (speechTimeout) clearTimeout(speechTimeout); resolve(); };
-        u.onerror = () => { if (speechTimeout) clearTimeout(speechTimeout); resolve(); };
-
-        window.speechSynthesis.speak(u);
-
-        speechTimeout = setInterval(() => {
-            if (!window.speechSynthesis.speaking) {
-                clearInterval(speechTimeout);
+            // Если произойдет конец или ошибка — завершаем
+            const finish = () => {
+                if (speechTimeout) clearTimeout(speechTimeout);
                 resolve();
-            } else {
-                window.speechSynthesis.pause();
-                window.speechSynthesis.resume();
-            }
-        }, 10000);
+            };
+
+            u.onend = finish;
+            u.onerror = (e) => {
+                console.warn("Device TTS warning:", e.error);
+                finish();
+            };
+
+            window.speechSynthesis.speak(u);
+
+            // Пинг-понг для Chrome, чтобы не зависал на длинных текстах
+            speechTimeout = setInterval(() => {
+                if (!window.speechSynthesis.speaking) {
+                    clearInterval(speechTimeout);
+                    finish();
+                } else {
+                    window.speechSynthesis.pause();
+                    window.speechSynthesis.resume();
+                }
+            }, 10000);
+        }, 50); // <-- Небольшая задержка перед стартом
     });
 }
