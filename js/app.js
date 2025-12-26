@@ -1,8 +1,9 @@
-import { initDB, saveBookToDB, getAllBooks, deleteBook, updateBookProgress } from './db.js';
+import { initDB, saveBookToDB, getAllBooks, deleteBook, updateBookProgress, getCachedTranslation, saveCachedTranslation } from './db.js';
 import { translateApi, fetchPhonetics } from './api.js';
 import { loadZip, parseFb2, getFb2ChapterText, parseEpub, getEpubChapterContent, parsePdf } from './parser.js';
 import { speakDevice, playGoogleSingle, stopAudio } from './tts.js';
-import { initDB, saveBookToDB, getAllBooks, deleteBook, updateBookProgress, getCachedTranslation, saveCachedTranslation } from './db.js';
+
+// ... далее идет остальной код ...
 
 // --- Глобальное состояние ---
 const state = {
