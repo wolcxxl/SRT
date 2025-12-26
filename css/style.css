@@ -768,3 +768,45 @@ button.active-state {
 @media (max-width: 600px) {
     .nav-zone { width: 40px; }
 }
+/* --- PAGED MODE (Режим страниц) --- */
+
+/* Контейнер превращается в горизонтальный скролл */
+.paged-view .content-area {
+    height: 100% !important;
+    width: 100% !important;
+    
+    /* Магия CSS: разбиваем текст на колонки шириной в экран */
+    column-width: 100vw; 
+    column-gap: 40px; /* Отступ между страницами */
+    column-fill: auto;
+    
+    overflow-y: hidden !important; /* Запрещаем вертикальный скролл */
+    overflow-x: hidden !important; /* Скрываем горизонтальный (будем листать JS) */
+    
+    /* Выравнивание текста */
+    text-align: justify;
+}
+
+/* Картинки в режиме страниц не должны рваться */
+.paged-view img, 
+.paged-view .image-stub {
+    max-height: 90vh;
+    width: auto;
+    max-width: 100%;
+    break-inside: avoid; /* Не разрывать картинку между страницами */
+}
+
+/* Счетчик страниц */
+#page-counter {
+    position: fixed;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.7);
+    color: #aaa;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 100;
+}
