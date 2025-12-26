@@ -1,4 +1,4 @@
-const CACHE_NAME = 'smart-reader-v4'; // Меняйте версию при обновлениях
+const CACHE_NAME = 'smart-reader-v7-final'; // Меняйте версию при обновлениях
 
 const urlsToCache = [
   './',

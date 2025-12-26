@@ -24,17 +24,15 @@ let ui = {};
 
 document.addEventListener('DOMContentLoaded', async () => {
     initUI();
-    console.log("App initialized");
     try {
         await initDB();
         await refreshLibrary();
     } catch (e) { console.error("DB Init Error:", e); }
 
-    // Инициализация всех обработчиков
     setupEventListeners();
     setupResizer();
     setupSelectionBar();
-    setupNavigationZones(); // Эта функция теперь точно есть внизу
+    setupNavigationZones();
     setupSwipeGestures();
     
     document.body.addEventListener('click', handleGlobalClicks);
@@ -67,7 +65,7 @@ function initUI() {
         modalImg: document.getElementById('modal-img-element'),
         modalClose: document.getElementById('modal-close'),
 
-        // ВАЖНО: JS переменная называется voiceSrc, а ID в HTML - voiceSource
+        // Ссылка на выпадающий список провайдера (Google/Edge)
         voiceSrc: document.getElementById('voiceSource'),
         
         voiceRu: document.getElementById('voiceRu'),
@@ -132,6 +130,10 @@ function setupEventListeners() {
             const vs = document.getElementById('voiceSettings');
             if(vs) vs.style.display = (mode === 'edge') ? 'flex' : 'none';
         };
+        // Инициализация при старте
+        const mode = ui.voiceSrc.value;
+        const vs = document.getElementById('voiceSettings');
+        if(vs) vs.style.display = (mode === 'edge') ? 'flex' : 'none';
     }
 
     ui.chapSel.onchange = (e) => loadChapter(parseInt(e.target.value));
@@ -165,7 +167,6 @@ function setupEventListeners() {
     if(ui.modalClose) ui.modalClose.onclick = closeImageModal;
     if(ui.imageModal) ui.imageModal.onclick = (e) => { if(e.target === ui.imageModal) closeImageModal(); };
     
-    // Вызовы функций настройки UI
     updateLayoutUI(); 
     updateZonesState();
 }
@@ -302,14 +303,16 @@ function applyTranslation(el, text) {
     el.classList.add('translated');
 }
 
-// --- ФУНКЦИЯ ЗВУКА (ИСПРАВЛЕНА: ui.voiceSrc) ---
+// --- ФУНКЦИЯ ЗВУКА (ИСПРАВЛЕНАЯ ЛОГИКА) ---
 async function playFullAudio(text, lang) { 
     stopAudio(); 
     showGlobalStop(true); 
     state.isAudioPlaying = true;
     
-    // ИСПРАВЛЕНО: ui.voiceSrc вместо ui.voiceSource
-    const provider = ui.voiceSrc ? ui.voiceSrc.value : 'google'; 
+    // Получаем провайдера (Google или Edge)
+    let provider = 'google';
+    if (ui.voiceSrc) provider = ui.voiceSrc.value;
+    
     const rateEl = document.getElementById('rateRange'); 
     const rate = rateEl ? parseFloat(rateEl.value) : 1.0; 
     
@@ -317,29 +320,34 @@ async function playFullAudio(text, lang) {
     if (!cleanText) { showGlobalStop(false); state.isAudioPlaying = false; return; }
 
     if (provider === 'google') { 
+        // Разбивка на предложения
         const chunks = cleanText.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [cleanText]; 
         for (let chunk of chunks) { 
             if(!state.isWorking && !state.isAudioPlaying) break; 
             chunk = chunk.trim(); if(!chunk) continue; 
             
             try {
-                // Если Google работает - читаем через него
+                // Пытаемся читать через Google
                 await playGoogleSingle(chunk, lang, rate); 
-                await sleep(50); // Пауза для стабильности
+                // Небольшая пауза между предложениями
+                await sleep(50); 
             } catch (e) {
-                // Если ошибка - читаем этот кусок устройством (Soft Fallback)
-                console.log("Google error, using device fallback for chunk");
+                // Если ошибка (например, бан) - читаем ЭТОТ кусок устройством
+                console.warn("Google TTS failed for chunk, using Device fallback");
                 await speakDevice(chunk, lang, 'f', 'native', rate);
             }
         } 
     } else { 
-        // Чтение устройством
+        // Чтение устройством (Edge/Device)
         let gender = 'f'; 
+        // Берем настройки пола голоса из UI
         if (lang.startsWith('ru') && ui.voiceRu) gender = ui.voiceRu.value; 
         else if (lang.startsWith('en') && ui.voiceEn) gender = ui.voiceEn.value; 
         else if (lang.startsWith('de') && ui.voiceDe) gender = ui.voiceDe.value; 
+        
         await speakDevice(cleanText, lang, gender, provider, rate); 
     } 
+    
     state.isAudioPlaying = false;
     if(!state.isWorking) showGlobalStop(false); 
 }
@@ -363,7 +371,7 @@ function setupSync() {
     ui.trans.onscroll = () => requestAnimationFrame(() => sync(ui.trans, ui.orig));
 }
 
-// --- ВОТ ТУТ ФУНКЦИЯ, КОТОРОЙ НЕ ХВАТАЛО ---
+// --- ФУНКЦИИ НАВИГАЦИИ (Теперь точно на месте) ---
 function setupNavigationZones() {
     const handleZoneClick = (direction) => {
         const scrollAmount = window.innerHeight * 0.8;
@@ -380,7 +388,6 @@ function setupNavigationZones() {
     if(ui.zoneRight) ui.zoneRight.onclick = (e) => { e.stopPropagation(); handleZoneClick(1); };
     if(ui.zoneLeft) ui.zoneLeft.onclick = (e) => { e.stopPropagation(); handleZoneClick(-1); };
 }
-// -------------------------------------------
 
 function setupResizer() { 
     let isResizing = false; let rAF = null;
@@ -399,6 +406,19 @@ function setupResizer() {
     }; 
     ui.resizer.addEventListener('mousedown', start); document.addEventListener('mouseup', stop); document.addEventListener('mousemove', move); 
     ui.resizer.addEventListener('touchstart', start); document.addEventListener('touchend', stop); document.addEventListener('touchmove', move); 
+}
+
+function setupSwipeGestures() {
+    let touchStartX = 0, touchStartY = 0;
+    ui.container.addEventListener('touchstart', (e) => { touchStartX = e.changedTouches[0].screenX; touchStartY = e.changedTouches[0].screenY; }, {passive: true});
+    ui.container.addEventListener('touchend', (e) => {
+        const dx = e.changedTouches[0].screenX - touchStartX;
+        const dy = e.changedTouches[0].screenY - touchStartY;
+        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 60) {
+            if (dx < 0) loadChapter(state.currentIdx + 1); 
+            else loadChapter(state.currentIdx - 1);
+        }
+    }, {passive: true});
 }
 
 async function handleGlobalClicks(e) {
