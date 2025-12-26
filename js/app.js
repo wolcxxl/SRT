@@ -489,18 +489,23 @@ async function doTrans(el) { if(el.classList.contains('translated')) return true
 // Вставьте в js/app.js ВМЕСТО старой функции playFullAudio
 
 async function playFullAudio(text, lang) { 
-    // 1. Сброс
     stopAudio();
     showGlobalStop(true); 
     state.isAudioPlaying = true;
     
-    // 2. Получаем настройки (ИСПРАВЛЕНА ОПЕЧАТКА: ui.voiceSrc вместо ui.voiceSource)
-    let provider = ui.voiceSrc ? ui.voiceSrc.value : 'google'; 
+    // ПРОВЕРКА ПЕРЕМЕННОЙ (Исправляем ошибку из консоли TypeError)
+    // Убедитесь, что в initUI переменная называется ui.voiceSrc
+    let provider = 'google';
+    if (ui.voiceSrc) {
+        provider = ui.voiceSrc.value;
+    } else if (ui.voiceSource) {
+        // Запасной вариант, если вы не исправили initUI
+        provider = ui.voiceSource.value;
+    }
     
     const rateEl = document.getElementById('rateRange'); 
     const rate = rateEl ? parseFloat(rateEl.value) : 1.0; 
     
-    // Очистка текста
     const cleanText = text.replace(/🔊/g, '').trim();
     if (!cleanText) {
         showGlobalStop(false);
@@ -508,20 +513,16 @@ async function playFullAudio(text, lang) {
         return;
     }
 
-    // ЛОГИКА: Если выбран Google, пробуем его.
     if (provider === 'google') { 
         const chunks = cleanText.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [cleanText]; 
         
         for (let chunk of chunks) { 
-            // Проверка на стоп
             if(!state.isWorking && !state.isAudioPlaying) break; 
-            
             chunk = chunk.trim(); 
             if(!chunk) continue; 
             
-            // Попытка воспроизвести через Google
             try {
-                // Если кусок длинный, бьем его
+                // Если длинный текст - бьем на части
                 if (chunk.length > 180) { 
                     const sub = chunk.match(/.{1,180}(?:\s|$)/g); 
                     if(sub) { 
@@ -534,26 +535,20 @@ async function playFullAudio(text, lang) {
                     } 
                 } 
                 
+                // Пробуем Google
                 await playGoogleSingle(chunk, lang, rate); 
                 await sleep(50);
 
             } catch (e) {
-                // ВАЖНО: Если Google выдал ошибку (забанил), мы меняем провайдера ГЛОБАЛЬНО
-                console.warn("Google failed, switching to Device permanently for this session");
-                
-                // Переключаем выпадающий список в интерфейсе
-                if(ui.voiceSrc) ui.voiceSrc.value = 'edge';
-                document.getElementById('voiceSettings').style.display = 'flex';
-                
-                // Дочитываем текущий кусок уже устройством
+                // ОШИБКА GOOGLE
+                // Мы НЕ переключаем провайдера навсегда.
+                // Мы просто читаем текущий кусок на устройстве (Fallback)
+                console.log("Google packet failed, using Device fallback once.");
                 await speakDevice(chunk, lang, 'f', 'native', rate);
-                
-                // Выходим из цикла Google, дальше будет работать логика Device (при следующем клике)
-                // или можно продолжить цикл, но уже через speakDevice, но проще прервать и дать пользователю нажать снова.
             }
         } 
     } else { 
-        // Логика для Edge / Device
+        // Если пользователь сам выбрал Edge/Device
         let gender = 'f'; 
         if (lang.startsWith('ru') && ui.voiceRu) gender = ui.voiceRu.value; 
         else if (lang.startsWith('en') && ui.voiceEn) gender = ui.voiceEn.value; 

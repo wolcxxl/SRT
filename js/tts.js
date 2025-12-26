@@ -1,5 +1,3 @@
-// tts.js
-
 const voiceProfiles = {
     'ru': { m: ['Dmitry', 'Pavel', 'Ivan', 'Male', 'Rus'], f: ['Svetlana', 'Alina', 'Tatyana', 'Female', 'Milena'] },
     'en': { m: ['Guy', 'Stefan', 'Christopher', 'Male'], f: ['Aria', 'Jenny', 'Michelle', 'Female', 'Google US'] },
@@ -17,7 +15,6 @@ export function getBestVoice(lang, genderPref, mode) {
     
     let candidates = allVoices.filter(v => v.lang.toLowerCase().startsWith(code));
 
-    // Если режим Edge - ищем качественные голоса
     if (mode === 'edge') {
         let hq = candidates.filter(v => v.name.includes("Natural") || v.name.includes("Microsoft") || v.name.includes("Online") || v.name.includes("Google"));
         if (hq.length > 0) candidates = hq;
@@ -32,48 +29,31 @@ export function getBestVoice(lang, genderPref, mode) {
     return match;
 }
 
-// Жесткая остановка всего
 export function stopAudio() {
-    // 1. Останавливаем нативный синтез
-    if (window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-    }
-    
-    // 2. Останавливаем аудио-файл (Google)
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
     if (currentAudio) {
         currentAudio.pause();
-        currentAudio.src = ""; // Важно для сброса буфера на мобильных
+        currentAudio.src = ""; 
         currentAudio = null;
     }
-    
-    // 3. Очищаем таймеры
-    if (speechTimeout) {
-        clearTimeout(speechTimeout);
-        speechTimeout = null;
-    }
-    
-    // 4. Сбрасываем промис
-    if (audioResolve) {
-        audioResolve();
-        audioResolve = null;
-    }
+    if (speechTimeout) { clearTimeout(speechTimeout); speechTimeout = null; }
+    if (audioResolve) { audioResolve(); audioResolve = null; }
 }
 
-// Вставьте в js/tts.js
-
 export function playGoogleSingle(text, lang, rate) {
-    return new Promise((resolve, reject) => { // Добавили reject
+    return new Promise((resolve, reject) => {
         stopAudio(); 
         audioResolve = resolve;
 
+        // Тайм-аут 6 секунд. Если интернет медленный, лучше упасть в ошибку и прочитать нативным голосом.
         const failTimeout = setTimeout(() => {
-            // Если таймаут — это ошибка, переключаемся на Device
             reject("Timeout"); 
-        }, 5000); 
+        }, 6000); 
 
-        const url = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${lang}&q=${encodeURIComponent(text)}`;
-        const audio = new Audio(url);
+        // ИСПОЛЬЗУЕМ ДРУГОЙ КЛИЕНТ (GTX) - он реже блокируется
+        const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=${lang}&client=gtx&dt=t`;
         
+        const audio = new Audio(url);
         audio.playbackRate = rate;
         currentAudio = audio;
 
@@ -83,16 +63,16 @@ export function playGoogleSingle(text, lang, rate) {
             resolve();
         };
 
-        audio.onerror = () => {
+        audio.onerror = (e) => {
             clearTimeout(failTimeout);
             currentAudio = null;
-            // ВАЖНО: Возвращаем ошибку, чтобы app.js переключил режим
-            reject("Google Blocked"); 
+            // Возвращаем ошибку, но НЕ ПАНИКУЕМ. App.js решит, что делать.
+            console.warn("Google TTS chunk failed (404/Network)");
+            reject("Google Error"); 
         };
 
         audio.play().catch(e => {
             clearTimeout(failTimeout);
-            // Ошибка воспроизведения (политика браузера) — тоже реджект
             reject(e);
         });
     });
@@ -101,15 +81,10 @@ export function playGoogleSingle(text, lang, rate) {
 export function speakDevice(text, lang, gender, mode, rate) {
     return new Promise((resolve) => {
         if (!window.speechSynthesis) { resolve(); return; }
-        
-        // ВАЖНО: Cancel должен быть синхронным перед созданием нового Utterance
         window.speechSynthesis.cancel();
-        
         audioResolve = resolve;
 
         const u = new SpeechSynthesisUtterance(text);
-        
-        // Нормализация языка
         let targetLang = lang;
         if (lang === 'en') targetLang = 'en-US';
         if (lang === 'de') targetLang = 'de-DE';
@@ -117,25 +92,14 @@ export function speakDevice(text, lang, gender, mode, rate) {
 
         const voice = getBestVoice(targetLang, gender, mode);
         if (voice) u.voice = voice;
-        
         u.lang = targetLang;
         u.rate = rate;
 
-        u.onend = () => {
-            if (speechTimeout) clearTimeout(speechTimeout);
-            resolve();
-        };
-        
-        u.onerror = (e) => {
-            console.error("Device TTS error", e);
-            if (speechTimeout) clearTimeout(speechTimeout);
-            resolve();
-        };
+        u.onend = () => { if (speechTimeout) clearTimeout(speechTimeout); resolve(); };
+        u.onerror = () => { if (speechTimeout) clearTimeout(speechTimeout); resolve(); };
 
         window.speechSynthesis.speak(u);
 
-        // Хак для Chrome/Android: если речь длинная, она может "зависнуть".
-        // Пингуем движок каждые 10 секунд.
         speechTimeout = setInterval(() => {
             if (!window.speechSynthesis.speaking) {
                 clearInterval(speechTimeout);
