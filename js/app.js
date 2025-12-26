@@ -15,20 +15,21 @@ const state = {
     isAudioPlaying: false,
     isVertical: true,
     isZonesEnabled: false,
-    isPaged: false,         // <--- НОВЫЙ ФЛАГ
-    totalCharCount: 0,      // <--- ОБЩЕЕ КОЛ-ВО СИМВОЛОВ (для расчета страниц)
-    chapterCharCounts: [],  // Символы по главам
+    isPaged: false,
+    totalCharCount: 0,
+    chapterCharCounts: [],
     t_sync: null,
     saveTimeout: null,
-    translationObserver: null
+    translationObserver: null // Для ленивой подгрузки
 };
 
 let ui = {};
 
+// --- Инициализация ---
 document.addEventListener('DOMContentLoaded', async () => {
     initUI();
     await initDB();
-    refreshLibrary();
+    refreshLibrary(); // Вот эта функция, которую он потерял
     setupEventListeners();
     setupResizer();
     setupSelectionBar();
@@ -83,8 +84,8 @@ function initUI() {
         globalStop: document.getElementById('global-stop-btn'),
         layoutBtn: document.getElementById('layoutBtn'),
         zoneToggle: document.getElementById('zoneToggle'),
-        pagedToggle: document.getElementById('pagedToggle'), // <--- НОВАЯ КНОПКА
-        pageCounter: document.getElementById('page-counter'), // <--- СЧЕТЧИК
+        pagedToggle: document.getElementById('pagedToggle'),
+        pageCounter: document.getElementById('page-counter'),
         
         zoneLeft: document.getElementById('nav-zone-left'),
         zoneRight: document.getElementById('nav-zone-right')
@@ -92,7 +93,6 @@ function initUI() {
 }
 
 function setupEventListeners() {
-    // ... (стандартные листенеры, без изменений) ...
     const range = document.getElementById('rateRange');
     const label = document.getElementById('rateVal');
     if (range && label) {
@@ -143,7 +143,6 @@ function setupEventListeners() {
 
     ui.layoutBtn.onclick = toggleLayout;
     
-    // --- ПЕРЕКЛЮЧАТЕЛЬ РЕЖИМА СТРАНИЦ ---
     if(ui.pagedToggle) {
         ui.pagedToggle.onclick = () => {
             state.isPaged = !state.isPaged;
@@ -154,11 +153,11 @@ function setupEventListeners() {
     ui.fontFamily.onchange = () => {
         document.body.className = document.body.className.replace(/font-\w+/g, '');
         if(ui.fontFamily.value !== 'ui') document.body.classList.add(`font-${ui.fontFamily.value}`);
-        updatePageCountDisplay(); // Пересчет при смене шрифта
+        updatePageCountDisplay();
     };
     document.getElementById('fontSize').onchange = (e) => {
         document.documentElement.style.setProperty('--font-size', e.target.value);
-        updatePageCountDisplay(); // Пересчет при смене размера
+        updatePageCountDisplay();
     };
     document.getElementById('boldToggle').onclick = (e) => {
         document.body.classList.toggle('font-bold');
@@ -197,7 +196,6 @@ function updatePagedMode() {
         ui.pagedToggle.classList.add('active-state');
         ui.container.classList.add('paged-view');
         ui.pageCounter.style.display = 'block';
-        // Принудительно скроллим в начало текущей "страницы"
         ui.orig.scrollLeft = 0;
         updatePageCountDisplay();
     } else {
@@ -207,94 +205,24 @@ function updatePagedMode() {
     }
 }
 
-// === ЛОГИКА СТРАНИЦ ===
-
-// Вычисляем "Примерное" количество страниц во всей книге
-function calculateTotalPagesEstimate() {
-    if (!ui.orig || ui.orig.innerText.length < 100) return { current: 1, total: 1 };
-
-    // 1. Сколько символов влезает на ОДИН экран?
-    // Берем текущий текст главы и делим его длину на кол-во экранов, которое он занимает
-    const screenWidth = ui.orig.clientWidth;
-    const scrollW = ui.orig.scrollWidth;
-    const textLen = ui.orig.innerText.length;
-    
-    // Количество экранов в текущей главе
-    const screensInChapter = Math.ceil(scrollW / screenWidth) || 1;
-    
-    // Среднее кол-во символов на страницу
-    const charsPerPage = textLen / screensInChapter;
-
-    // 2. Считаем глобальные страницы
-    // Суммируем символы всех глав (мы их не грузим, но можем знать длину, если сохраним при парсинге. 
-    // Пока упростим: считаем "прогресс" относительно текущей главы)
-    
-    // Упрощенный "честный" расчет для текущей главы + эмуляция глобального
-    // Чтобы было "12 из 500", нам нужно знать длину всей книги. 
-    // Если мы ее не знаем точно, будем эмулировать на основе позиции главы.
-    
-    const totalChapters = Math.max(state.epubChapters.length, state.fb2Chapters.length) || 1;
-    const avgChapterLen = charsPerPage * 10; // Допустим, в главе 10 страниц
-    const estimatedTotalPages = Math.ceil((state.totalCharCount || (textLen * totalChapters)) / charsPerPage);
-    
-    // Текущая страница в главе (0-based)
-    const currentScreenIdx = Math.round(ui.orig.scrollLeft / screenWidth);
-    
-    // Страниц до текущей главы (грубо)
-    let pagesBefore = 0;
-    for(let i=0; i<state.currentIdx; i++) {
-        // Если есть данные о длине глав - используем, иначе берем среднее
-        pagesBefore += (state.chapterCharCounts[i] ? Math.ceil(state.chapterCharCounts[i] / charsPerPage) : 10);
+// --- Library Functions ---
+async function refreshLibrary() {
+    const books = await getAllBooks();
+    ui.bookGrid.innerHTML = '';
+    if(books.length === 0) {
+        ui.bookGrid.innerHTML = '<div style="color:#666;width:100%;text-align:center;padding-top:20px">Библиотека пуста</div>';
+        return;
     }
-    
-    const globalPage = pagesBefore + currentScreenIdx + 1;
-    const globalTotal = Math.max(estimatedTotalPages, globalPage); // Чтобы не было "100 из 50"
-    
-    return { current: globalPage, total: globalTotal };
-}
+    books.sort((a, b) => (b.lastRead || b.date) - (a.lastRead || a.date));
 
-function updatePageCountDisplay() {
-    if (!state.isPaged) return;
-    const count = calculateTotalPagesEstimate();
-    ui.pageCounter.innerText = `Стр. ${count.current} из ${count.total}`;
+    books.forEach(book => {
+        const card = document.createElement('div'); card.className = 'book-card';
+        card.innerHTML = `<button class="delete-btn" data-id="${book.id}">×</button><div class="book-cover">📖</div><div class="book-info"><div class="book-title">${book.name}</div><div class="book-fmt">${book.type}</div></div>`;
+        card.querySelector('.delete-btn').onclick = async (e) => { e.stopPropagation(); if(confirm("Удалить?")) { await deleteBook(book.id); refreshLibrary(); }};
+        card.onclick = () => openBook(book); 
+        ui.bookGrid.appendChild(card);
+    });
 }
-
-// Навигация ВПЕРЕД (Страница или Глава)
-function nextPageOrChapter() {
-    if (state.isPaged) {
-        const el = ui.orig;
-        // Если можно скроллить вправо (есть еще страницы в этой главе)
-        // Допуск 10px на погрешность
-        if (el.scrollLeft + el.clientWidth < el.scrollWidth - 10) {
-            el.scrollBy({ left: el.clientWidth, behavior: 'smooth' });
-        } else {
-            // Конец главы -> следующая глава
-            loadChapter(state.currentIdx + 1);
-        }
-        setTimeout(updatePageCountDisplay, 300);
-    } else {
-        // Старый режим
-        loadChapter(state.currentIdx + 1);
-    }
-}
-
-// Навигация НАЗАД
-function prevPageOrChapter() {
-    if (state.isPaged) {
-        const el = ui.orig;
-        if (el.scrollLeft > 10) {
-            el.scrollBy({ left: -el.clientWidth, behavior: 'smooth' });
-        } else {
-            // Начало главы -> пред. глава (и нужно бы прокрутить в конец, но пока в начало)
-            loadChapter(state.currentIdx - 1);
-        }
-        setTimeout(updatePageCountDisplay, 300);
-    } else {
-        loadChapter(state.currentIdx - 1);
-    }
-}
-
-// ... (resetState, refreshLibrary - без изменений) ...
 
 function resetState() {
     clearTimeout(state.saveTimeout);
@@ -305,7 +233,7 @@ function resetState() {
     state.book = null;
     state.fb2Chapters = [];
     state.epubChapters = [];
-    state.chapterCharCounts = []; // Очищаем счетчик символов
+    state.chapterCharCounts = [];
     state.totalCharCount = 0;
     state.coverUrl = null;
     state.currentIdx = 0;
@@ -317,7 +245,6 @@ function resetState() {
     if(ui.topNav) ui.topNav.style.display = 'none';
 }
 
-// ... (openBook - без изменений) ...
 async function openBook(bookData) {
     resetState();
     ui.libView.classList.remove('active');
@@ -362,7 +289,6 @@ async function openBook(bookData) {
              renderText(await file.text());
         }
         
-        // Восстановление режима страниц, если был
         updatePagedMode();
         setStatus(file.name);
     } catch(err) { console.error(err); alert("Ошибка: " + err.message); setStatus("Ошибка"); } finally { hideLoad(); }
@@ -372,10 +298,8 @@ function processFb2Data(text, progress) {
     state.fb2Chapters = parseFb2(text);
     ui.chapSel.innerHTML = '';
     
-    // Считаем символы
     state.totalCharCount = 0;
     state.chapterCharCounts = state.fb2Chapters.map(c => {
-        // Грубая оценка длины контента (текст + теги)
         const len = c.content.textContent.length; 
         state.totalCharCount += len;
         return len;
@@ -394,11 +318,7 @@ async function processEpubData(buffer, progress) {
         
         setStatus(data.title);
         ui.chapSel.innerHTML = '';
-        
-        // Для EPUB сложно узнать длину всех глав сразу без загрузки.
-        // Будем считать динамически или брать среднее.
-        // Пока ставим заглушку, будет пересчитываться при чтении
-        state.totalCharCount = state.epubChapters.length * 5000; // Примерно 5000 символов на главу
+        state.totalCharCount = state.epubChapters.length * 5000;
 
         state.epubChapters.forEach((c, i) => ui.chapSel.add(new Option(c.title, i)));
         loadChapter(progress.chapter || 0, progress.scroll || 0);
@@ -436,34 +356,115 @@ async function loadChapter(idx, scrollTop = 0) {
         void ui.orig.offsetWidth; 
         ui.orig.classList.add('page-anim');
 
-        // Сброс скролла
         ui.orig.scrollTop = 0;
         ui.orig.scrollLeft = 0;
 
         if (scrollTop > 0) {
-            // Если мы в режиме страниц, нужно сконвертировать вертикальный скролл в горизонтальный?
-            // Пока просто восстанавливаем как есть, пользователь сам переключится.
             setTimeout(() => { ui.orig.scrollTop = scrollTop; }, 50);
         }
 
         restoreChapterTranslations();
-        // Обновляем счетчик
         setTimeout(updatePageCountDisplay, 100);
         
     } catch(e) { renderText("Ошибка: " + e.message); } finally { hideLoad(); }
 }
 
-// --- НОВЫЙ SETUP ЗОН И СВАЙПОВ (Для поддержки страниц) ---
+// === Paging Logic ===
+function calculateTotalPagesEstimate() {
+    if (!ui.orig || ui.orig.innerText.length < 100) return { current: 1, total: 1 };
 
+    const screenWidth = ui.orig.clientWidth;
+    const scrollW = ui.orig.scrollWidth;
+    const textLen = ui.orig.innerText.length;
+    
+    const screensInChapter = Math.ceil(scrollW / screenWidth) || 1;
+    const charsPerPage = textLen / screensInChapter;
+
+    const estimatedTotalPages = Math.ceil(state.totalCharCount / charsPerPage) || 1;
+    
+    const currentScreenIdx = Math.round(ui.orig.scrollLeft / screenWidth);
+    
+    let pagesBefore = 0;
+    for(let i=0; i<state.currentIdx; i++) {
+        pagesBefore += (state.chapterCharCounts[i] ? Math.ceil(state.chapterCharCounts[i] / charsPerPage) : 10);
+    }
+    
+    const globalPage = pagesBefore + currentScreenIdx + 1;
+    const globalTotal = Math.max(estimatedTotalPages, globalPage);
+    
+    return { current: globalPage, total: globalTotal };
+}
+
+function updatePageCountDisplay() {
+    if (!state.isPaged) return;
+    const count = calculateTotalPagesEstimate();
+    ui.pageCounter.innerText = `Стр. ${count.current} из ${count.total}`;
+}
+
+function nextPageOrChapter() {
+    if (state.isPaged) {
+        const el = ui.orig;
+        if (el.scrollLeft + el.clientWidth < el.scrollWidth - 10) {
+            el.scrollBy({ left: el.clientWidth, behavior: 'smooth' });
+        } else {
+            loadChapter(state.currentIdx + 1);
+        }
+        setTimeout(updatePageCountDisplay, 300);
+    } else {
+        loadChapter(state.currentIdx + 1);
+    }
+}
+
+function prevPageOrChapter() {
+    if (state.isPaged) {
+        const el = ui.orig;
+        if (el.scrollLeft > 10) {
+            el.scrollBy({ left: -el.clientWidth, behavior: 'smooth' });
+        } else {
+            loadChapter(state.currentIdx - 1);
+        }
+        setTimeout(updatePageCountDisplay, 300);
+    } else {
+        loadChapter(state.currentIdx - 1);
+    }
+}
+
+// === Lazy Load Translation ===
+function restoreChapterTranslations() {
+    if (state.translationObserver) { state.translationObserver.disconnect(); }
+    const src = ui.srcLang.value; const tgt = ui.tgtLang.value;
+    
+    state.translationObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach(async (entry) => {
+            if (entry.isIntersecting) {
+                const el = entry.target; 
+                observer.unobserve(el);
+                const text = el.dataset.text; 
+                if (!text) return;
+                try {
+                    const t = await getCachedTranslation(text, src, tgt);
+                    if (t && el.isConnected && !el.classList.contains('translated')) {
+                        requestAnimationFrame(() => { 
+                            el.innerHTML = `<button class="para-tts-btn">🔊</button>${t}`; 
+                            el.classList.add('translated'); 
+                        });
+                    }
+                } catch (e) { }
+            }
+        });
+    }, { root: ui.trans, rootMargin: '500px' });
+    
+    const els = document.querySelectorAll('.trans-p:not(.translated):not(.image-stub)');
+    els.forEach(el => state.translationObserver.observe(el));
+}
+
+// === Navigation & Swipes ===
 function setupNavigationZones() {
-    // Единая логика для клика по зоне
     const handleZoneClick = (direction) => {
         if (state.isPaged) {
-            // В режиме страниц: листаем экранами
             if (direction === 1) nextPageOrChapter();
             else prevPageOrChapter();
         } else {
-            // В обычном режиме: скроллим вниз/вверх
             const scrollAmount = window.innerHeight * 0.8;
             const el = ui.orig;
             if (direction === 1 && el.scrollTop + el.clientHeight >= el.scrollHeight - 50) {
@@ -475,7 +476,6 @@ function setupNavigationZones() {
             }
         }
     };
-
     if(ui.zoneRight) ui.zoneRight.onclick = (e) => { e.stopPropagation(); handleZoneClick(1); };
     if(ui.zoneLeft) ui.zoneLeft.onclick = (e) => { e.stopPropagation(); handleZoneClick(-1); };
 }
@@ -491,36 +491,26 @@ function setupSwipeGestures() {
         const dx = e.changedTouches[0].screenX - touchStartX;
         const dy = e.changedTouches[0].screenY - touchStartY;
         
-        // Определяем свайп
         if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 60) {
-            // Горизонтальный свайп
             if (dx < 0) {
-                // Свайп влево -> Вперед
                 if (state.isPaged) nextPageOrChapter();
                 else loadChapter(state.currentIdx + 1);
             } else {
-                // Свайп вправо -> Назад
                 if (state.isPaged) prevPageOrChapter();
                 else loadChapter(state.currentIdx - 1);
             }
         }
     }, {passive: true});
     
-    // Добавляем слушатель скролла для обновления счетчика в реальном времени
     ui.orig.addEventListener('scroll', () => {
-        if(state.isPaged) {
-             // Используем throttle
-             if(!state.cntTimer) {
-                 state.cntTimer = setTimeout(() => {
-                     updatePageCountDisplay();
-                     state.cntTimer = null;
-                 }, 500);
-             }
+        if(state.isPaged && !state.cntTimer) {
+             state.cntTimer = setTimeout(() => {
+                 updatePageCountDisplay();
+                 state.cntTimer = null;
+             }, 500);
         }
     });
 }
-
-// ... (остальные функции: saveProgress, renderText, restoreChapterTranslations и т.д. без изменений) ...
 
 function saveProgress(chapterIdx, scrollTop) {
     clearTimeout(state.saveTimeout);
@@ -563,29 +553,7 @@ function renderText(txt) {
         }
     });
     ui.orig.appendChild(f1); ui.trans.appendChild(f2);
-    // При рендере в режиме страниц обновляем счетчик
     if(state.isPaged) updatePageCountDisplay();
-}
-
-function restoreChapterTranslations() {
-    if (state.translationObserver) { state.translationObserver.disconnect(); }
-    const src = ui.srcLang.value; const tgt = ui.tgtLang.value;
-    state.translationObserver = new IntersectionObserver((entries, observer) => {
-        entries.forEach(async (entry) => {
-            if (entry.isIntersecting) {
-                const el = entry.target; observer.unobserve(el);
-                const text = el.dataset.text; if (!text) return;
-                try {
-                    const t = await getCachedTranslation(text, src, tgt);
-                    if (t && el.isConnected && !el.classList.contains('translated')) {
-                        requestAnimationFrame(() => { el.innerHTML = `<button class="para-tts-btn">🔊</button>${t}`; el.classList.add('translated'); });
-                    }
-                } catch (e) { }
-            }
-        });
-    }, { root: ui.trans, rootMargin: '500px' });
-    const els = document.querySelectorAll('.trans-p:not(.translated):not(.image-stub)');
-    els.forEach(el => state.translationObserver.observe(el));
 }
 
 function openImageModal(src) { if(ui.modalImg && ui.imageModal) { ui.modalImg.src = src; ui.imageModal.classList.add('visible'); } }
