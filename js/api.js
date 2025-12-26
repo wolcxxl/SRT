@@ -6,28 +6,20 @@ export async function translateApi(text, sl, tl) {
 }
 
 export async function fetchPhonetics(word, lang) {
-    // Если это не английский, фонетику API часто не дает, можно сразу вернуть пустоту
-    if (!lang.startsWith('en')) return {}; 
+    const w = word.toLowerCase().replace(/[.,!?;:()"]/g, '');
+    if (!w) return { ipa: null, cyr: null };
 
-    try {
-        const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/${lang}/${word}`);
-        
-        // ВАЖНО: Если статус 404, просто возвращаем пустой объект, не ругаясь в консоль
-        if (res.status === 404) return {}; 
-        
-        if (!res.ok) throw new Error('API Error');
-        
-        const data = await res.json();
-        // ... ваша логика парсинга ...
-        // (Обычно возвращается data[0].phonetic или data[0].phonetics...)
-        return { 
-            ipa: data[0]?.phonetic || '', 
-            // ... 
-        };
-    } catch (e) {
-        // Заглушаем ошибку, чтобы она не краснила консоль
-        return {};
+    if (lang === 'en' || lang === 'auto') {
+        try {
+            const r = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${w}`);
+            if (r.ok) {
+                const d = await r.json();
+                return { ipa: d[0].phonetic, cyr: transliterateEn(w) };
+            }
+        } catch { }
     }
+    if (lang === 'de') return { ipa: germanToIPA(w), cyr: transliterateDe(w) };
+    return { ipa: null, cyr: null };
 }
 
 function germanToIPA(w) {
