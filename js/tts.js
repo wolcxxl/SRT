@@ -59,16 +59,17 @@ export function stopAudio() {
     }
 }
 
+// Вставьте в js/tts.js
+
 export function playGoogleSingle(text, lang, rate) {
-    return new Promise((resolve) => {
-        stopAudio(); // Сброс перед стартом
+    return new Promise((resolve, reject) => { // Добавили reject
+        stopAudio(); 
         audioResolve = resolve;
 
-        // Тайм-аут на случай, если интернет на телефоне завис
         const failTimeout = setTimeout(() => {
-            console.warn("Google TTS Timeout - skipping");
-            resolve(); 
-        }, 5000); // 5 секунд макс на загрузку куска
+            // Если таймаут — это ошибка, переключаемся на Device
+            reject("Timeout"); 
+        }, 5000); 
 
         const url = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${lang}&q=${encodeURIComponent(text)}`;
         const audio = new Audio(url);
@@ -82,20 +83,17 @@ export function playGoogleSingle(text, lang, rate) {
             resolve();
         };
 
-        audio.onerror = async () => {
+        audio.onerror = () => {
             clearTimeout(failTimeout);
-            console.warn("Google TTS Error/Blocked. Switching to Device.");
             currentAudio = null;
-            // Если гугл забанил - пробуем устройство
-            await speakDevice(text, lang, 'f', 'native', rate);
-            resolve();
+            // ВАЖНО: Возвращаем ошибку, чтобы app.js переключил режим
+            reject("Google Blocked"); 
         };
 
         audio.play().catch(e => {
             clearTimeout(failTimeout);
-            console.error("Audio play error (user gesture?):", e);
-            // Если браузер запретил автоплей - пробуем устройство
-            speakDevice(text, lang, 'f', 'native', rate).then(resolve);
+            // Ошибка воспроизведения (политика браузера) — тоже реджект
+            reject(e);
         });
     });
 }

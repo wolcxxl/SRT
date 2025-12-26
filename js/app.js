@@ -486,21 +486,21 @@ async function startReading() {
 
 async function doTrans(el) { if(el.classList.contains('translated')) return true; el.classList.add('loading', 'current'); const text = el.dataset.text; const src = ui.srcLang.value; const tgt = ui.tgtLang.value; try { let t = await getCachedTranslation(text, src, tgt); if (!t) { t = await translateApi(text, src, tgt); if (t) await saveCachedTranslation(text, src, tgt, t); } el.innerHTML = `<button class="para-tts-btn">🔊</button>${t}`; el.classList.add('translated'); return true; } catch (e) { el.classList.add('error'); return false; } finally { el.classList.remove('loading', 'current'); } }
 
-// Вставьте это в app.js вместо старой функции playFullAudio
+// Вставьте в js/app.js ВМЕСТО старой функции playFullAudio
 
 async function playFullAudio(text, lang) { 
-    stopAudio(); // Остановка предыдущего
+    // 1. Сброс
+    stopAudio();
     showGlobalStop(true); 
     state.isAudioPlaying = true;
     
-    // --- ИСПРАВЛЕНИЕ ОШИБКИ ЗДЕСЬ ---
-    // Было ui.voiceSource, а правильно ui.voiceSrc (как объявлено в initUI)
-    const provider = ui.voiceSrc ? ui.voiceSrc.value : 'google'; 
-    // --------------------------------
+    // 2. Получаем настройки (ИСПРАВЛЕНА ОПЕЧАТКА: ui.voiceSrc вместо ui.voiceSource)
+    let provider = ui.voiceSrc ? ui.voiceSrc.value : 'google'; 
     
     const rateEl = document.getElementById('rateRange'); 
     const rate = rateEl ? parseFloat(rateEl.value) : 1.0; 
     
+    // Очистка текста
     const cleanText = text.replace(/🔊/g, '').trim();
     if (!cleanText) {
         showGlobalStop(false);
@@ -508,34 +508,56 @@ async function playFullAudio(text, lang) {
         return;
     }
 
+    // ЛОГИКА: Если выбран Google, пробуем его.
     if (provider === 'google') { 
         const chunks = cleanText.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [cleanText]; 
         
         for (let chunk of chunks) { 
+            // Проверка на стоп
             if(!state.isWorking && !state.isAudioPlaying) break; 
+            
             chunk = chunk.trim(); 
             if(!chunk) continue; 
             
-            if (chunk.length > 180) { 
-                const sub = chunk.match(/.{1,180}(?:\s|$)/g); 
-                if(sub) { 
-                    for(let s of sub) {
-                        if(!state.isWorking && !state.isAudioPlaying) break;
-                        await playGoogleSingle(s, lang, rate); 
-                        await sleep(50);
-                    }
-                    continue; 
+            // Попытка воспроизвести через Google
+            try {
+                // Если кусок длинный, бьем его
+                if (chunk.length > 180) { 
+                    const sub = chunk.match(/.{1,180}(?:\s|$)/g); 
+                    if(sub) { 
+                        for(let s of sub) {
+                            if(!state.isWorking && !state.isAudioPlaying) break;
+                            await playGoogleSingle(s, lang, rate); 
+                            await sleep(50);
+                        }
+                        continue; 
+                    } 
                 } 
-            } 
-            await playGoogleSingle(chunk, lang, rate); 
-            await sleep(50);
+                
+                await playGoogleSingle(chunk, lang, rate); 
+                await sleep(50);
+
+            } catch (e) {
+                // ВАЖНО: Если Google выдал ошибку (забанил), мы меняем провайдера ГЛОБАЛЬНО
+                console.warn("Google failed, switching to Device permanently for this session");
+                
+                // Переключаем выпадающий список в интерфейсе
+                if(ui.voiceSrc) ui.voiceSrc.value = 'edge';
+                document.getElementById('voiceSettings').style.display = 'flex';
+                
+                // Дочитываем текущий кусок уже устройством
+                await speakDevice(chunk, lang, 'f', 'native', rate);
+                
+                // Выходим из цикла Google, дальше будет работать логика Device (при следующем клике)
+                // или можно продолжить цикл, но уже через speakDevice, но проще прервать и дать пользователю нажать снова.
+            }
         } 
     } else { 
-        // Device TTS
+        // Логика для Edge / Device
         let gender = 'f'; 
-        if (lang.startsWith('ru')) gender = ui.voiceRu.value; 
-        else if (lang.startsWith('en')) gender = ui.voiceEn.value; 
-        else if (lang.startsWith('de')) gender = ui.voiceDe.value; 
+        if (lang.startsWith('ru') && ui.voiceRu) gender = ui.voiceRu.value; 
+        else if (lang.startsWith('en') && ui.voiceEn) gender = ui.voiceEn.value; 
+        else if (lang.startsWith('de') && ui.voiceDe) gender = ui.voiceDe.value; 
         
         await speakDevice(cleanText, lang, gender, provider, rate); 
     } 
