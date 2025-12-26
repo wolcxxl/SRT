@@ -20,16 +20,15 @@ const state = {
     chapterCharCounts: [],
     t_sync: null,
     saveTimeout: null,
-    translationObserver: null // Для ленивой подгрузки
+    translationObserver: null
 };
 
 let ui = {};
 
-// --- Инициализация ---
 document.addEventListener('DOMContentLoaded', async () => {
     initUI();
     await initDB();
-    refreshLibrary(); // Вот эта функция, которую он потерял
+    await refreshLibrary(); // Теперь функция существует
     setupEventListeners();
     setupResizer();
     setupSelectionBar();
@@ -143,6 +142,7 @@ function setupEventListeners() {
 
     ui.layoutBtn.onclick = toggleLayout;
     
+    // Защита от отсутствия кнопки
     if(ui.pagedToggle) {
         ui.pagedToggle.onclick = () => {
             state.isPaged = !state.isPaged;
@@ -180,6 +180,9 @@ function setupEventListeners() {
 }
 
 function updateZonesState() {
+    // Защита: если кнопок нет, не падаем
+    if (!ui.zoneToggle || !ui.zoneLeft || !ui.zoneRight) return;
+    
     if (state.isZonesEnabled) {
         ui.zoneToggle.classList.add('active-state');
         ui.zoneLeft.classList.add('active');
@@ -192,20 +195,23 @@ function updateZonesState() {
 }
 
 function updatePagedMode() {
+    // Защита: если кнопки нет, не падаем
+    if (!ui.pagedToggle) return;
+
     if (state.isPaged) {
         ui.pagedToggle.classList.add('active-state');
         ui.container.classList.add('paged-view');
-        ui.pageCounter.style.display = 'block';
+        if(ui.pageCounter) ui.pageCounter.style.display = 'block';
         ui.orig.scrollLeft = 0;
         updatePageCountDisplay();
     } else {
         ui.pagedToggle.classList.remove('active-state');
         ui.container.classList.remove('paged-view');
-        ui.pageCounter.style.display = 'none';
+        if(ui.pageCounter) ui.pageCounter.style.display = 'none';
     }
 }
 
-// --- Library Functions ---
+// === ВОТ ФУНКЦИЯ, КОТОРАЯ БЫЛА ПОТЕРЯНА ===
 async function refreshLibrary() {
     const books = await getAllBooks();
     ui.bookGrid.innerHTML = '';
@@ -223,6 +229,7 @@ async function refreshLibrary() {
         ui.bookGrid.appendChild(card);
     });
 }
+// ===========================================
 
 function resetState() {
     clearTimeout(state.saveTimeout);
@@ -369,7 +376,6 @@ async function loadChapter(idx, scrollTop = 0) {
     } catch(e) { renderText("Ошибка: " + e.message); } finally { hideLoad(); }
 }
 
-// === Paging Logic ===
 function calculateTotalPagesEstimate() {
     if (!ui.orig || ui.orig.innerText.length < 100) return { current: 1, total: 1 };
 
@@ -396,7 +402,8 @@ function calculateTotalPagesEstimate() {
 }
 
 function updatePageCountDisplay() {
-    if (!state.isPaged) return;
+    // Защита: если счетчик не найден или режим выключен
+    if (!state.isPaged || !ui.pageCounter) return;
     const count = calculateTotalPagesEstimate();
     ui.pageCounter.innerText = `Стр. ${count.current} из ${count.total}`;
 }
@@ -429,7 +436,6 @@ function prevPageOrChapter() {
     }
 }
 
-// === Lazy Load Translation ===
 function restoreChapterTranslations() {
     if (state.translationObserver) { state.translationObserver.disconnect(); }
     const src = ui.srcLang.value; const tgt = ui.tgtLang.value;
@@ -458,7 +464,6 @@ function restoreChapterTranslations() {
     els.forEach(el => state.translationObserver.observe(el));
 }
 
-// === Navigation & Swipes ===
 function setupNavigationZones() {
     const handleZoneClick = (direction) => {
         if (state.isPaged) {
