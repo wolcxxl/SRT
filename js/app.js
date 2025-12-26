@@ -290,7 +290,33 @@ async function processEpubData(buffer, progress) {
         loadChapter(progress.chapter || 0, progress.scroll || 0);
     } catch (e) { throw new Error(e.message); }
 }
+// --- Функция авто-восстановления переводов ---
+function restoreChapterTranslations() {
+    const src = ui.srcLang.value;
+    const tgt = ui.tgtLang.value;
+    
+    // Берем все параграфы, которые еще не переведены
+    const els = document.querySelectorAll('.trans-p:not(.translated):not(.image-stub)');
+    
+    els.forEach(async (el) => {
+        const text = el.dataset.text;
+        if (!text) return;
 
+        // Тихо спрашиваем базу
+        try {
+            const t = await getCachedTranslation(text, src, tgt);
+            if (t) {
+                // Если перевод есть, и элемент всё еще на экране (пользователь не ушел)
+                if (el.isConnected) {
+                    el.innerHTML = `<button class="para-tts-btn">🔊</button>${t}`;
+                    el.classList.add('translated');
+                }
+            }
+        } catch (e) {
+            // Ошибки игнорируем, чтобы не засорять консоль
+        }
+    });
+}
 async function loadChapter(idx, scrollTop = 0) {
     stopAllWork();
     let max = 0;
@@ -318,13 +344,18 @@ async function loadChapter(idx, scrollTop = 0) {
         }
         renderText(text);
         
+        // Анимация
         ui.orig.classList.remove('page-anim');
         void ui.orig.offsetWidth; 
         ui.orig.classList.add('page-anim');
 
+        // Восстановление скролла
         if (scrollTop > 0) {
             setTimeout(() => { ui.orig.scrollTop = scrollTop; }, 50);
         }
+
+        // === НОВАЯ СТРОКА: Восстанавливаем сохраненные переводы ===
+        restoreChapterTranslations();
         
     } catch(e) { renderText("Ошибка: " + e.message); } finally { hideLoad(); }
 }
