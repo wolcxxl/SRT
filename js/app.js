@@ -4,6 +4,7 @@ import { loadZip, parseFb2, getFb2ChapterText, parseEpub, getEpubChapterContent,
 import { speakDevice, playGoogleSingle, stopAudio } from './tts.js';
 
 // --- Глобальное состояние ---
+// --- Глобальное состояние ---
 const state = {
     book: null,
     currentBookId: null,
@@ -16,7 +17,8 @@ const state = {
     isVertical: true,
     isZonesEnabled: false,
     t_sync: null,
-    saveTimeout: null
+    saveTimeout: null,
+    translationObserver: null // <--- НОВОЕ: Наблюдатель за прокруткой
 };
 
 let ui = {};
@@ -191,9 +193,16 @@ async function refreshLibrary() {
     });
 }
 
-// === Сброс состояния ===
 function resetState() {
     clearTimeout(state.saveTimeout);
+    
+    // --- НОВОЕ: Отключаем наблюдатель ---
+    if (state.translationObserver) {
+        state.translationObserver.disconnect();
+        state.translationObserver = null;
+    }
+    // ------------------------------------
+
     state.book = null;
     state.fb2Chapters = [];
     state.epubChapters = [];
@@ -205,7 +214,6 @@ function resetState() {
     ui.trans.innerHTML = '';
     ui.chapSel.innerHTML = '';
     
-    // ИСПРАВЛЕНИЕ: Скрываем новую панель навигации (если она есть)
     if(ui.topNav) ui.topNav.style.display = 'none';
 }
 
@@ -288,7 +296,52 @@ async function processEpubData(buffer, progress) {
         loadChapter(progress.chapter || 0, progress.scroll || 0);
     } catch (e) { throw new Error(e.message); }
 }
+// --- Оптимизированная функция авто-восстановления (Lazy Load) ---
+function restoreChapterTranslations() {
+    // Если был старый наблюдатель - отключаем его, чтобы не ел память
+    if (state.translationObserver) {
+        state.translationObserver.disconnect();
+    }
 
+    const src = ui.srcLang.value;
+    const tgt = ui.tgtLang.value;
+
+    // Создаем нового наблюдателя
+    state.translationObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach(async (entry) => {
+            // Если элемент появился на экране (isIntersecting)
+            if (entry.isIntersecting) {
+                const el = entry.target;
+                
+                // Сразу перестаем следить за ним, чтобы не проверять дважды
+                observer.unobserve(el);
+
+                const text = el.dataset.text;
+                if (!text) return;
+
+                try {
+                    // Спрашиваем базу
+                    const t = await getCachedTranslation(text, src, tgt);
+                    if (t && el.isConnected && !el.classList.contains('translated')) {
+                        // Используем requestAnimationFrame для плавности UI
+                        requestAnimationFrame(() => {
+                            el.innerHTML = `<button class="para-tts-btn">🔊</button>${t}`;
+                            el.classList.add('translated');
+                        });
+                    }
+                } catch (e) { }
+            }
+        });
+    }, {
+        root: ui.trans, // Следим внутри панели перевода
+        rootMargin: '500px' // Загружать заранее (за 500px до появления на экране)
+    });
+
+    // Натравливаем наблюдателя на все непереведенные параграфы
+    const els = document.querySelectorAll('.trans-p:not(.translated):not(.image-stub)');
+    els.forEach(el => state.translationObserver.observe(el));
+}
+}
 async function loadChapter(idx, scrollTop = 0) {
     stopAllWork();
     let max = 0;
@@ -316,13 +369,18 @@ async function loadChapter(idx, scrollTop = 0) {
         }
         renderText(text);
         
+        // Анимация
         ui.orig.classList.remove('page-anim');
         void ui.orig.offsetWidth; 
         ui.orig.classList.add('page-anim');
 
+        // Восстановление скролла
         if (scrollTop > 0) {
             setTimeout(() => { ui.orig.scrollTop = scrollTop; }, 50);
         }
+
+        // === НОВАЯ СТРОКА: Восстанавливаем сохраненные переводы ===
+        restoreChapterTranslations();
         
     } catch(e) { renderText("Ошибка: " + e.message); } finally { hideLoad(); }
 }
