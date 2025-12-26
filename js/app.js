@@ -1,4 +1,4 @@
-import { initDB, saveBookToDB, getAllBooks, deleteBook, updateBookProgress } from './db.js';
+import { initDB, saveBookToDB, getAllBooks, deleteBook, updateBookProgress, getCachedTranslation, saveCachedTranslation } from './db.js';
 import { translateApi, fetchPhonetics } from './api.js';
 import { loadZip, parseFb2, getFb2ChapterText, parseEpub, getEpubChapterContent, parsePdf } from './parser.js';
 import { speakDevice, playGoogleSingle, stopAudio } from './tts.js';
@@ -16,9 +16,9 @@ const state = {
     isVertical: true,
     isZonesEnabled: false,
     t_sync: null,
-    saveTimeout: null
+    saveTimeout: null,
+    translationObserver: null // <--- НОВОЕ: Наблюдатель за прокруткой
 };
-
 let ui = {};
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -191,9 +191,16 @@ async function refreshLibrary() {
     });
 }
 
-// === Сброс состояния ===
 function resetState() {
     clearTimeout(state.saveTimeout);
+    
+    // --- НОВОЕ: Отключаем наблюдатель ---
+    if (state.translationObserver) {
+        state.translationObserver.disconnect();
+        state.translationObserver = null;
+    }
+    // ------------------------------------
+
     state.book = null;
     state.fb2Chapters = [];
     state.epubChapters = [];
@@ -205,7 +212,6 @@ function resetState() {
     ui.trans.innerHTML = '';
     ui.chapSel.innerHTML = '';
     
-    // ИСПРАВЛЕНИЕ: Скрываем новую панель навигации (если она есть)
     if(ui.topNav) ui.topNav.style.display = 'none';
 }
 
@@ -316,13 +322,18 @@ async function loadChapter(idx, scrollTop = 0) {
         }
         renderText(text);
         
+        // Анимация
         ui.orig.classList.remove('page-anim');
         void ui.orig.offsetWidth; 
         ui.orig.classList.add('page-anim');
 
+        // Восстановление скролла
         if (scrollTop > 0) {
             setTimeout(() => { ui.orig.scrollTop = scrollTop; }, 50);
         }
+
+        // === НОВАЯ СТРОКА: Восстанавливаем сохраненные переводы ===
+        restoreChapterTranslations();
         
     } catch(e) { renderText("Ошибка: " + e.message); } finally { hideLoad(); }
 }
@@ -439,7 +450,52 @@ function setupSwipeGestures() {
         }
     }, {passive: true});
 }
+// --- Функция авто-восстановления переводов ---
+// --- Оптимизированная функция авто-восстановления (Lazy Load) ---
+function restoreChapterTranslations() {
+    // Если был старый наблюдатель - отключаем его, чтобы не ел память
+    if (state.translationObserver) {
+        state.translationObserver.disconnect();
+    }
 
+    const src = ui.srcLang.value;
+    const tgt = ui.tgtLang.value;
+
+    // Создаем нового наблюдателя
+    state.translationObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach(async (entry) => {
+            // Если элемент появился на экране (isIntersecting)
+            if (entry.isIntersecting) {
+                const el = entry.target;
+                
+                // Сразу перестаем следить за ним, чтобы не проверять дважды
+                observer.unobserve(el);
+
+                const text = el.dataset.text;
+                if (!text) return;
+
+                try {
+                    // Спрашиваем базу
+                    const t = await getCachedTranslation(text, src, tgt);
+                    if (t && el.isConnected && !el.classList.contains('translated')) {
+                        // Используем requestAnimationFrame для плавности UI
+                        requestAnimationFrame(() => {
+                            el.innerHTML = `<button class="para-tts-btn">🔊</button>${t}`;
+                            el.classList.add('translated');
+                        });
+                    }
+                } catch (e) { }
+            }
+        });
+    }, {
+        root: ui.trans, // Следим внутри панели перевода
+        rootMargin: '500px' // Загружать заранее (за 500px до появления на экране)
+    });
+
+    // Натравливаем наблюдателя на все непереведенные параграфы
+    const els = document.querySelectorAll('.trans-p:not(.translated):not(.image-stub)');
+    els.forEach(el => state.translationObserver.observe(el));
+}
 function stopAllWork() {
     state.isWorking = false; state.isAudioPlaying = false;
     ui.btnStart.disabled = false; ui.btnRead.disabled = false; ui.btnStop.disabled = true;
@@ -477,13 +533,37 @@ async function startReading() {
     stopAllWork();
 }
 async function doTrans(el) {
+    // Если уже переведено - выходим
     if(el.classList.contains('translated')) return true;
+    
     el.classList.add('loading', 'current');
+    
+    const text = el.dataset.text;
+    const src = ui.srcLang.value;
+    const tgt = ui.tgtLang.value;
+
     try {
-        const t = await translateApi(el.dataset.text, ui.srcLang.value, ui.tgtLang.value);
+        // 1. Сначала ищем в базе данных (КЭШ)
+        let t = await getCachedTranslation(text, src, tgt);
+        
+        // 2. Если в базе нет - идем в интернет (API)
+        if (!t) {
+            t = await translateApi(text, src, tgt);
+            // 3. Сохраняем результат в базу
+            if (t) await saveCachedTranslation(text, src, tgt, t);
+        }
+
+        // Отображаем
         el.innerHTML = `<button class="para-tts-btn">🔊</button>${t}`;
-        el.classList.add('translated'); return true;
-    } catch { el.classList.add('error'); return false; } finally { el.classList.remove('loading', 'current'); }
+        el.classList.add('translated');
+        return true;
+    } catch (e) {
+        console.error(e);
+        el.classList.add('error');
+        return false;
+    } finally {
+        el.classList.remove('loading', 'current');
+    }
 }
 async function playFullAudio(text, lang) {
     showGlobalStop(true);
