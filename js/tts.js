@@ -1,3 +1,5 @@
+// tts.js
+
 const voiceProfiles = {
     'ru': { m: ['Dmitry', 'Pavel', 'Ivan', 'Male', 'Rus'], f: ['Svetlana', 'Alina', 'Tatyana', 'Female', 'Milena'] },
     'en': { m: ['Guy', 'Stefan', 'Christopher', 'Male'], f: ['Aria', 'Jenny', 'Michelle', 'Female', 'Google US'] },
@@ -6,17 +8,18 @@ const voiceProfiles = {
 
 let currentAudio = null;
 let audioResolve = null;
+let speechTimeout = null;
 
 export function getBestVoice(lang, genderPref, mode) {
     if (!window.speechSynthesis) return null;
     const allVoices = window.speechSynthesis.getVoices();
-    // Упрощенный код языка (ru-RU -> ru)
     const code = lang.split('-')[0].toLowerCase();
     
     let candidates = allVoices.filter(v => v.lang.toLowerCase().startsWith(code));
 
+    // Если режим Edge - ищем качественные голоса
     if (mode === 'edge') {
-        let hq = candidates.filter(v => v.name.includes("Natural") || v.name.includes("Microsoft") || v.name.includes("Online"));
+        let hq = candidates.filter(v => v.name.includes("Natural") || v.name.includes("Microsoft") || v.name.includes("Online") || v.name.includes("Google"));
         if (hq.length > 0) candidates = hq;
     } 
 
@@ -29,20 +32,27 @@ export function getBestVoice(lang, genderPref, mode) {
     return match;
 }
 
+// Жесткая остановка всего
 export function stopAudio() {
-    // Останавливаем нативный синтез
+    // 1. Останавливаем нативный синтез
     if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
     }
     
-    // Останавливаем аудио-файл (Google)
+    // 2. Останавливаем аудио-файл (Google)
     if (currentAudio) {
         currentAudio.pause();
-        currentAudio.currentTime = 0; // Сброс на начало
+        currentAudio.src = ""; // Важно для сброса буфера на мобильных
         currentAudio = null;
     }
     
-    // Если кто-то ждал окончания — отпускаем его
+    // 3. Очищаем таймеры
+    if (speechTimeout) {
+        clearTimeout(speechTimeout);
+        speechTimeout = null;
+    }
+    
+    // 4. Сбрасываем промис
     if (audioResolve) {
         audioResolve();
         audioResolve = null;
@@ -51,13 +61,15 @@ export function stopAudio() {
 
 export function playGoogleSingle(text, lang, rate) {
     return new Promise((resolve) => {
-        // Сброс предыдущего
-        stopAudio(); 
-        
-        // Сохраняем resolve, чтобы вызвать его, если нажмут "Стоп"
+        stopAudio(); // Сброс перед стартом
         audioResolve = resolve;
 
-        // Формируем URL. Добавил client=tw-ob, он стабильнее
+        // Тайм-аут на случай, если интернет на телефоне завис
+        const failTimeout = setTimeout(() => {
+            console.warn("Google TTS Timeout - skipping");
+            resolve(); 
+        }, 5000); // 5 секунд макс на загрузку куска
+
         const url = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${lang}&q=${encodeURIComponent(text)}`;
         const audio = new Audio(url);
         
@@ -65,27 +77,24 @@ export function playGoogleSingle(text, lang, rate) {
         currentAudio = audio;
 
         audio.onended = () => {
+            clearTimeout(failTimeout);
             currentAudio = null;
-            audioResolve = null;
             resolve();
         };
 
-        // ГЛАВНОЕ ИСПРАВЛЕНИЕ:
         audio.onerror = async () => {
-            console.warn("Google TTS Error/Blocked. Falling back to Device TTS.");
+            clearTimeout(failTimeout);
+            console.warn("Google TTS Error/Blocked. Switching to Device.");
             currentAudio = null;
-            
-            // Если Гугл забанил или ошибка сети — читаем нативным голосом!
-            // Это спасет от бесконечного цикла ошибок.
+            // Если гугл забанил - пробуем устройство
             await speakDevice(text, lang, 'f', 'native', rate);
-            
-            audioResolve = null;
             resolve();
         };
 
         audio.play().catch(e => {
-            console.error("Audio play error:", e);
-            // Если автовоспроизведение запрещено, тоже пробуем нативный
+            clearTimeout(failTimeout);
+            console.error("Audio play error (user gesture?):", e);
+            // Если браузер запретил автоплей - пробуем устройство
             speakDevice(text, lang, 'f', 'native', rate).then(resolve);
         });
     });
@@ -95,14 +104,14 @@ export function speakDevice(text, lang, gender, mode, rate) {
     return new Promise((resolve) => {
         if (!window.speechSynthesis) { resolve(); return; }
         
-        // Не делаем stopAudio() здесь, иначе он сбросит сам себя при рекурсии
-        if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
+        // ВАЖНО: Cancel должен быть синхронным перед созданием нового Utterance
+        window.speechSynthesis.cancel();
         
         audioResolve = resolve;
 
         const u = new SpeechSynthesisUtterance(text);
         
-        // Нормализация языка для API
+        // Нормализация языка
         let targetLang = lang;
         if (lang === 'en') targetLang = 'en-US';
         if (lang === 'de') targetLang = 'de-DE';
@@ -114,29 +123,29 @@ export function speakDevice(text, lang, gender, mode, rate) {
         u.lang = targetLang;
         u.rate = rate;
 
-        // Обработчики событий
         u.onend = () => {
-            audioResolve = null;
+            if (speechTimeout) clearTimeout(speechTimeout);
             resolve();
         };
         
         u.onerror = (e) => {
             console.error("Device TTS error", e);
-            audioResolve = null;
+            if (speechTimeout) clearTimeout(speechTimeout);
             resolve();
         };
 
         window.speechSynthesis.speak(u);
 
-        // Хак для Chrome, который любит останавливать длинную речь через 15 сек
-        const t = setInterval(() => {
+        // Хак для Chrome/Android: если речь длинная, она может "зависнуть".
+        // Пингуем движок каждые 10 секунд.
+        speechTimeout = setInterval(() => {
             if (!window.speechSynthesis.speaking) {
-                clearInterval(t);
-                // resolve вызывается в onend, тут дублировать не надо, только чистим таймер
+                clearInterval(speechTimeout);
+                resolve();
             } else {
                 window.speechSynthesis.pause();
                 window.speechSynthesis.resume();
             }
-        }, 14000);
+        }, 10000);
     });
 }

@@ -488,38 +488,66 @@ async function doTrans(el) { if(el.classList.contains('translated')) return true
 
 // --- TTS (ИСПРАВЛЕНО - защита от бана Google) ---
 async function playFullAudio(text, lang) { 
+    // 1. Сразу останавливаем всё, что играло до этого
+    stopAudio();
+    
     showGlobalStop(true); 
-    const provider = ui.voiceSrc.value; 
+    state.isAudioPlaying = true;
+    
+    // 2. Читаем настройки ПРЯМО СЕЙЧАС (чтобы работало переключение на лету)
+    const provider = ui.voiceSource.value; 
     const rateEl = document.getElementById('rateRange'); 
     const rate = rateEl ? parseFloat(rateEl.value) : 1.0; 
     
+    // Очистка текста
+    const cleanText = text.replace(/🔊/g, '').trim();
+    if (!cleanText) {
+        showGlobalStop(false);
+        state.isAudioPlaying = false;
+        return;
+    }
+
     if (provider === 'google') { 
-        const chunks = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text]; 
+        // Google TTS: бьем на куски
+        const chunks = cleanText.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [cleanText]; 
+        
         for (let chunk of chunks) { 
+            // Проверка кнопки СТОП
             if(!state.isWorking && !state.isAudioPlaying) break; 
+            
             chunk = chunk.trim(); 
             if(!chunk) continue; 
             
+            // Если кусок длинный - режем еще
             if (chunk.length > 180) { 
                 const sub = chunk.match(/.{1,180}(?:\s|$)/g); 
                 if(sub) { 
                     for(let s of sub) {
                         if(!state.isWorking && !state.isAudioPlaying) break;
-                        await playGoogleSingle(s, lang, rate); // Ждем окончания
+                        await playGoogleSingle(s, lang, rate); 
+                        // Микро-пауза для стабильности на мобилках
+                        await sleep(50);
                     }
                     continue; 
                 } 
             } 
-            await playGoogleSingle(chunk, lang, rate); // Ждем окончания
+            
+            await playGoogleSingle(chunk, lang, rate); 
+            await sleep(50);
         } 
     } else { 
+        // Device TTS (Edge/Native)
         let gender = 'f'; 
         if (lang.startsWith('ru')) gender = ui.voiceRu.value; 
         else if (lang.startsWith('en')) gender = ui.voiceEn.value; 
         else if (lang.startsWith('de')) gender = ui.voiceDe.value; 
-        await speakDevice(text, lang, gender, provider, rate); 
+        
+        // Device читает текст целиком лучше, чем кусками
+        await speakDevice(cleanText, lang, gender, provider, rate); 
     } 
-    if(!state.isWorking) showGlobalStop(false); 
+    
+    state.isAudioPlaying = false;
+    if(!state.isWorking) showGlobalStop(false);
 }
 
 async function showTooltip(el, text) { 
