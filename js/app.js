@@ -341,7 +341,6 @@ function restoreChapterTranslations() {
     const els = document.querySelectorAll('.trans-p:not(.translated):not(.image-stub)');
     els.forEach(el => state.translationObserver.observe(el));
 }
-}
 async function loadChapter(idx, scrollTop = 0) {
     stopAllWork();
     let max = 0;
