@@ -314,21 +314,29 @@ button.active-state {
 }
 
 .trans-p {
-    margin-bottom: 0.8em;      /* Чуть меньше отступ снизу */
-    padding: 6px 24px 6px 6px;
+    /* Оставляем старые настройки границ/фона */
+    margin-bottom: 0.5em;       /* Уменьшаем отступ между абзацами */
+    padding: 4px 10px 4px 4px;  /* Более компактные отступы внутри */
     border: 1px solid #333;
     border-radius: 4px;
-    cursor: pointer;
-    position: relative;
     background: #232323;
-    min-height: 1.5em;
-    text-align: justify;
+    min-height: 1.2em;
+    text-align: left;           /* Justify иногда создает лишние пробелы, left компактнее */
     
-    /* --- НОВЫЕ СТРОКИ --- */
-    font-size: 0.85em;        /* Шрифт перевода меньше (85% от оригинала) */
-    line-height: 1.35;        /* Более плотная строка */
-    color: #cecece;           /* Чуть менее яркий цвет, чтобы не отвлекал */
-    transition: none;         /* Убираем анимации размеров, чтобы было быстрее */
+    /* --- ГЛАВНЫЕ ИЗМЕНЕНИЯ ДЛЯ УМЕНЬШЕНИЯ ПРЫЖКОВ --- */
+    font-size: 0.85rem;         /* Шрифт перевода 85% от оригинала */
+    line-height: 1.3;           /* Уменьшаем высоту строки */
+    color: #dcdcdc;             /* Чуть приглушенный цвет */
+    overflow-wrap: break-word;  /* Чтобы длинные слова не ломали ширину */
+}
+
+/* Дополнительно: убираем лишние отступы у кнопки перевода */
+.para-tts-btn {
+    top: 0;
+    right: 0;
+    width: 20px;
+    height: 20px;
+    font-size: 10px;
 }
 
 /* Добавляем стабилизацию скролла для контейнеров */
