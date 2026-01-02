@@ -314,7 +314,7 @@ button.active-state {
 }
 
 .trans-p {
-    margin-bottom: 1em;
+    margin-bottom: 0.8em;      /* Чуть меньше отступ снизу */
     padding: 6px 24px 6px 6px;
     border: 1px solid #333;
     border-radius: 4px;
@@ -323,6 +323,18 @@ button.active-state {
     background: #232323;
     min-height: 1.5em;
     text-align: justify;
+    
+    /* --- НОВЫЕ СТРОКИ --- */
+    font-size: 0.85em;        /* Шрифт перевода меньше (85% от оригинала) */
+    line-height: 1.35;        /* Более плотная строка */
+    color: #cecece;           /* Чуть менее яркий цвет, чтобы не отвлекал */
+    transition: none;         /* Убираем анимации размеров, чтобы было быстрее */
+}
+
+/* Добавляем стабилизацию скролла для контейнеров */
+.content-area {
+    /* ... старые стили ... */
+    overflow-anchor: none;    /* ЗАПРЕЩАЕТ браузеру самовольно сдвигать скролл при изменении контента */
 }
 
 .trans-p.translated {

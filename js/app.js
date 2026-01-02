@@ -15,19 +15,16 @@ const state = {
     isAudioPlaying: false,
     isVertical: true,
     isZonesEnabled: false,
-    // Флаги для синхронизации скролла
-    isSyncingLeft: false,
-    isSyncingRight: false,
+    t_sync: null,
     saveTimeout: null,
-    translationObserver: null
+    translationObserver: null // <--- НОВОЕ: Наблюдатель за прокруткой
 };
-
 let ui = {};
 
 document.addEventListener('DOMContentLoaded', async () => {
     initUI();
     await initDB();
-    await refreshLibrary();
+    refreshLibrary();
     setupEventListeners();
     setupResizer();
     setupSelectionBar();
@@ -54,6 +51,7 @@ function initUI() {
         trans: document.getElementById('transPanel'),
         resizer: document.getElementById('resizer'),
         
+        // Навигация (исправлено)
         topNav: document.querySelector('.top-nav-group'), 
         chapSel: document.getElementById('chapterSelect'),
         
@@ -138,14 +136,11 @@ function setupEventListeners() {
     if(ui.globalStop) ui.globalStop.onclick = stopAllWork;
 
     ui.layoutBtn.onclick = toggleLayout;
-
     ui.fontFamily.onchange = () => {
         document.body.className = document.body.className.replace(/font-\w+/g, '');
         if(ui.fontFamily.value !== 'ui') document.body.classList.add(`font-${ui.fontFamily.value}`);
     };
-    document.getElementById('fontSize').onchange = (e) => {
-        document.documentElement.style.setProperty('--font-size', e.target.value);
-    };
+    document.getElementById('fontSize').onchange = (e) => document.documentElement.style.setProperty('--font-size', e.target.value);
     document.getElementById('boldToggle').onclick = (e) => {
         document.body.classList.toggle('font-bold');
         e.target.classList.toggle('active-state');
@@ -161,13 +156,12 @@ function setupEventListeners() {
     if(ui.modalClose) ui.modalClose.onclick = closeImageModal;
     if(ui.imageModal) ui.imageModal.onclick = (e) => { if(e.target === ui.imageModal) closeImageModal(); };
 
-    setupSync(); // <--- ВОТ ЗДЕСЬ ИНИЦИАЛИЗИРУЕТСЯ СИНХРОНИЗАЦИЯ
+    setupSync();
     updateLayoutUI(); 
     updateZonesState();
 }
 
 function updateZonesState() {
-    if (!ui.zoneToggle || !ui.zoneLeft || !ui.zoneRight) return;
     if (state.isZonesEnabled) {
         ui.zoneToggle.classList.add('active-state');
         ui.zoneLeft.classList.add('active');
@@ -199,10 +193,14 @@ async function refreshLibrary() {
 
 function resetState() {
     clearTimeout(state.saveTimeout);
+    
+    // --- НОВОЕ: Отключаем наблюдатель ---
     if (state.translationObserver) {
         state.translationObserver.disconnect();
         state.translationObserver = null;
     }
+    // ------------------------------------
+
     state.book = null;
     state.fb2Chapters = [];
     state.epubChapters = [];
@@ -213,40 +211,67 @@ function resetState() {
     ui.orig.innerHTML = '';
     ui.trans.innerHTML = '';
     ui.chapSel.innerHTML = '';
+    
     if(ui.topNav) ui.topNav.style.display = 'none';
 }
 
 async function openBook(bookData) {
     resetState();
+    
     ui.libView.classList.remove('active');
     ui.readerView.classList.add('active');
+    
     state.currentBookId = bookData.id;
     const file = bookData.file;
     const progress = bookData.progress || { chapter: 0, scroll: 0 };
+
     setStatus(`Загрузка...`);
     showLoad();
     try {
         const n = file.name.toLowerCase();
+        
         if(n.endsWith('.fb2')) {
             if(ui.topNav) ui.topNav.style.display = 'flex';
             processFb2Data(await file.text(), progress);
-        } else if(n.endsWith('.epub')) {
+        }
+        else if(n.endsWith('.epub')) {
             if(ui.topNav) ui.topNav.style.display = 'flex';
             await processEpubData(await file.arrayBuffer(), progress);
-        } else if(n.endsWith('.pdf')) {
+        }
+        else if(n.endsWith('.pdf')) {
             if(ui.topNav) ui.topNav.style.display = 'none';
-            renderText(await parsePdf(await file.arrayBuffer()));
-        } else if(n.endsWith('.zip')) {
+            const text = await parsePdf(await file.arrayBuffer());
+            renderText(text);
+            if (progress.scroll) setTimeout(() => { ui.orig.scrollTop = progress.scroll; }, 100);
+        }
+        else if(n.endsWith('.zip')) {
              const res = await loadZip(file);
-             if(res.type === 'epub') { if(ui.topNav) ui.topNav.style.display = 'flex'; await processEpubData(res.data, progress); }
-             else if(res.type === 'fb2') { if(ui.topNav) ui.topNav.style.display = 'flex'; processFb2Data(res.data, progress); }
-             else { if(ui.topNav) ui.topNav.style.display = 'none'; renderText(res.data); }
-        } else {
+             if(res.type === 'epub') {
+                 if(ui.topNav) ui.topNav.style.display = 'flex';
+                 await processEpubData(res.data, progress);
+             }
+             else if(res.type === 'fb2') {
+                 if(ui.topNav) ui.topNav.style.display = 'flex';
+                 processFb2Data(res.data, progress);
+             }
+             else {
+                 if(ui.topNav) ui.topNav.style.display = 'none';
+                 renderText(res.data);
+                 if (progress.scroll) setTimeout(() => { ui.orig.scrollTop = progress.scroll; }, 100);
+             }
+        } 
+        else {
              if(ui.topNav) ui.topNav.style.display = 'none';
              renderText(await file.text());
+             if (progress.scroll) setTimeout(() => { ui.orig.scrollTop = progress.scroll; }, 100);
         }
+        
         setStatus(file.name);
-    } catch(err) { console.error(err); alert("Ошибка: " + err.message); setStatus("Ошибка"); } finally { hideLoad(); }
+    } catch(err) { 
+        console.error(err);
+        alert("Ошибка открытия: " + err.message); 
+        setStatus("Ошибка"); 
+    } finally { hideLoad(); }
 }
 
 function processFb2Data(text, progress) {
@@ -257,13 +282,17 @@ function processFb2Data(text, progress) {
 }
 
 async function processEpubData(buffer, progress) {
-    const data = await parseEpub(buffer);
-    state.book = data.book;
-    state.epubChapters = data.chapters;
-    if(data.coverUrl) state.coverUrl = data.coverUrl;
-    ui.chapSel.innerHTML = '';
-    state.epubChapters.forEach((c, i) => ui.chapSel.add(new Option(c.title, i)));
-    loadChapter(progress.chapter || 0, progress.scroll || 0);
+    try {
+        const data = await parseEpub(buffer);
+        state.book = data.book;
+        state.epubChapters = data.chapters;
+        if(data.coverUrl) state.coverUrl = data.coverUrl;
+        
+        setStatus(data.title);
+        ui.chapSel.innerHTML = '';
+        state.epubChapters.forEach((c, i) => ui.chapSel.add(new Option(c.title, i)));
+        loadChapter(progress.chapter || 0, progress.scroll || 0);
+    } catch (e) { throw new Error(e.message); }
 }
 
 async function loadChapter(idx, scrollTop = 0) {
@@ -271,10 +300,13 @@ async function loadChapter(idx, scrollTop = 0) {
     let max = 0;
     if (state.epubChapters.length > 0) max = state.epubChapters.length - 1;
     else if (state.fb2Chapters.length > 0) max = state.fb2Chapters.length - 1;
-    if (idx < 0) idx = 0; if (idx > max && max > 0) idx = max;
+    
+    if (idx < 0) idx = 0;
+    if (idx > max && max > 0) idx = max;
     
     state.currentIdx = idx;
     ui.chapSel.value = idx;
+    
     if (state.currentBookId) saveProgress(idx, 0);
 
     showLoad();
@@ -290,187 +322,354 @@ async function loadChapter(idx, scrollTop = 0) {
         }
         renderText(text);
         
+        // Анимация
         ui.orig.classList.remove('page-anim');
         void ui.orig.offsetWidth; 
         ui.orig.classList.add('page-anim');
-        ui.orig.scrollTop = 0; ui.orig.scrollLeft = 0;
-        if (scrollTop > 0) setTimeout(() => { ui.orig.scrollTop = scrollTop; }, 50);
 
+        // Восстановление скролла
+        if (scrollTop > 0) {
+            setTimeout(() => { ui.orig.scrollTop = scrollTop; }, 50);
+        }
+
+        // === НОВАЯ СТРОКА: Восстанавливаем сохраненные переводы ===
         restoreChapterTranslations();
+        
     } catch(e) { renderText("Ошибка: " + e.message); } finally { hideLoad(); }
 }
 
-function restoreChapterTranslations() {
-    if (state.translationObserver) { state.translationObserver.disconnect(); }
-    const src = ui.srcLang.value; const tgt = ui.tgtLang.value;
-    state.translationObserver = new IntersectionObserver((entries, observer) => {
-        entries.forEach(async (entry) => {
-            if (entry.isIntersecting) {
-                const el = entry.target; observer.unobserve(el);
-                const text = el.dataset.text; if (!text) return;
-                try {
-                    const t = await getCachedTranslation(text, src, tgt);
-                    if (t && el.isConnected && !el.classList.contains('translated')) {
-                        requestAnimationFrame(() => { el.innerHTML = `<button class="para-tts-btn">🔊</button>${t}`; el.classList.add('translated'); });
-                    }
-                } catch (e) { }
-            }
-        });
-    }, { root: ui.trans, rootMargin: '500px' });
-    const els = document.querySelectorAll('.trans-p:not(.translated):not(.image-stub)');
-    els.forEach(el => state.translationObserver.observe(el));
+function saveProgress(chapterIdx, scrollTop) {
+    clearTimeout(state.saveTimeout);
+    state.saveTimeout = setTimeout(() => {
+        saveProgressNow(chapterIdx, scrollTop);
+    }, 1000);
 }
 
-function setupNavigationZones() {
-    const handleZoneClick = (direction) => {
-        const scrollAmount = window.innerHeight * 0.8;
-        const el = ui.orig;
-        if (direction === 1 && el.scrollTop + el.clientHeight >= el.scrollHeight - 50) loadChapter(state.currentIdx + 1);
-        else if (direction === -1 && el.scrollTop <= 0) loadChapter(state.currentIdx - 1);
-        else el.scrollBy({ top: scrollAmount * direction, behavior: 'smooth' });
-    };
-    if(ui.zoneRight) ui.zoneRight.onclick = (e) => { e.stopPropagation(); handleZoneClick(1); };
-    if(ui.zoneLeft) ui.zoneLeft.onclick = (e) => { e.stopPropagation(); handleZoneClick(-1); };
+function saveProgressNow(chapterIdx, scrollTop) {
+    if (!state.currentBookId) return;
+    const ch = (chapterIdx !== undefined) ? chapterIdx : state.currentIdx;
+    const scr = (scrollTop !== undefined) ? scrollTop : ui.orig.scrollTop;
+    updateBookProgress(state.currentBookId, ch, scr);
 }
-
-function setupSwipeGestures() {
-    let touchStartX = 0, touchStartY = 0;
-    ui.container.addEventListener('touchstart', (e) => { touchStartX = e.changedTouches[0].screenX; touchStartY = e.changedTouches[0].screenY; }, {passive: true});
-    ui.container.addEventListener('touchend', (e) => {
-        const dx = e.changedTouches[0].screenX - touchStartX;
-        const dy = e.changedTouches[0].screenY - touchStartY;
-        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 60) {
-            if (dx < 0) loadChapter(state.currentIdx + 1); 
-            else loadChapter(state.currentIdx - 1);
-        }
-    }, {passive: true});
-}
-
-// === ИСПРАВЛЕННАЯ СИНХРОНИЗАЦИЯ ===
-function setupSync() {
-    // Синхронизация: Оригинал -> Перевод
-    ui.orig.addEventListener('scroll', () => {
-        // Если скролл вызван вторым окном (переводом), то ничего не делаем
-        if (state.isSyncingRight) return;
-        
-        state.isSyncingLeft = true; // Блокируем обратный скролл
-        
-        const a = ui.orig;
-        const b = ui.trans;
-        
-        if (a.scrollHeight - a.clientHeight > 0) {
-            const percentage = a.scrollTop / (a.scrollHeight - a.clientHeight);
-            b.scrollTop = percentage * (b.scrollHeight - b.clientHeight);
-        }
-        
-        // Сохраняем прогресс (с задержкой)
-        saveProgress();
-        
-        // Снимаем блокировку через небольшой таймаут
-        clearTimeout(state.t_sync);
-        state.t_sync = setTimeout(() => { state.isSyncingLeft = false; }, 50);
-    });
-
-    // Синхронизация: Перевод -> Оригинал
-    ui.trans.addEventListener('scroll', () => {
-        if (state.isSyncingLeft) return;
-
-        state.isSyncingRight = true;
-
-        const a = ui.trans;
-        const b = ui.orig;
-
-        if (a.scrollHeight - a.clientHeight > 0) {
-            const percentage = a.scrollTop / (a.scrollHeight - a.clientHeight);
-            b.scrollTop = percentage * (b.scrollHeight - b.clientHeight);
-        }
-        
-        clearTimeout(state.t_sync);
-        state.t_sync = setTimeout(() => { state.isSyncingRight = false; }, 50);
-    });
-}
-
-function saveProgress(chapterIdx, scrollTop) { clearTimeout(state.saveTimeout); state.saveTimeout = setTimeout(() => { saveProgressNow(chapterIdx, scrollTop); }, 1000); }
-function saveProgressNow(chapterIdx, scrollTop) { if (!state.currentBookId) return; const ch = (chapterIdx !== undefined) ? chapterIdx : state.currentIdx; const scr = (scrollTop !== undefined) ? scrollTop : ui.orig.scrollTop; updateBookProgress(state.currentBookId, ch, scr); }
 
 function renderText(txt) {
     ui.orig.innerHTML = ''; ui.trans.innerHTML = ''; ui.orig.scrollTop = 0;
     const arr = txt.split(/\n\s*\n/).filter(x => x.trim().length > 0);
     const f1 = document.createDocumentFragment(); const f2 = document.createDocumentFragment();
+    
     arr.forEach(s => {
         const imgMatch = s.match(/^\[IMG:(.+?)\]$/);
         if (imgMatch) {
             const imgSrc = imgMatch[1];
-            const createImgBtn = () => { const div = document.createElement('div'); div.className = 'image-stub'; div.dataset.src = imgSrc; div.innerHTML = `<img class="preview" src="${imgSrc}"><span>📷 Просмотр</span>`; return div; };
-            f1.appendChild(createImgBtn()); f2.appendChild(createImgBtn());
+            const createImgBtn = () => {
+                const div = document.createElement('div'); div.className = 'image-stub';
+                div.dataset.src = imgSrc;
+                div.innerHTML = `<img class="preview" src="${imgSrc}"><span>📷 Просмотр</span>`;
+                return div;
+            };
+            const d1 = createImgBtn(); d1.classList.add('orig-p'); f1.appendChild(d1);
+            const d2 = createImgBtn(); d2.classList.add('trans-p', 'translated'); f2.appendChild(d2);
         } else {
-            const d1 = document.createElement('div'); d1.className = 'orig-p'; d1.innerHTML = s.replace(/([a-zA-Zа-яА-Я0-9\u00C0-\u00FF'-]+)/g, '<span class="word" data-word="$1">$1</span>'); f1.appendChild(d1);
-            const d2 = document.createElement('div'); d2.className = 'trans-p'; d2.dataset.text = s; d2.innerHTML = `<button class="para-tts-btn">🔊</button>${s}`; f2.appendChild(d2);
+            const d1 = document.createElement('div'); d1.className = 'orig-p';
+            d1.innerHTML = s.replace(/([a-zA-Zа-яА-Я0-9\u00C0-\u00FF'-]+)/g, '<span class="word" data-word="$1">$1</span>');
+            f1.appendChild(d1);
+            const d2 = document.createElement('div'); d2.className = 'trans-p'; d2.dataset.text = s;
+            d2.innerHTML = `<button class="para-tts-btn">🔊</button>${s}`;
+            f2.appendChild(d2);
         }
     });
     ui.orig.appendChild(f1); ui.trans.appendChild(f2);
 }
 
-function openImageModal(src) { if(ui.modalImg && ui.imageModal) { ui.modalImg.src = src; ui.imageModal.classList.add('visible'); } }
-function closeImageModal() { if(ui.imageModal) ui.imageModal.classList.remove('visible'); setTimeout(() => { if(ui.modalImg) ui.modalImg.src = ""; }, 300); }
+function openImageModal(src) {
+    if(ui.modalImg && ui.imageModal) {
+        ui.modalImg.src = src;
+        ui.imageModal.classList.add('visible');
+    }
+}
+function closeImageModal() {
+    if(ui.imageModal) ui.imageModal.classList.remove('visible');
+    setTimeout(() => { if(ui.modalImg) ui.modalImg.src = ""; }, 300);
+}
+
 async function handleGlobalClicks(e) {
-    if (e.target.closest('.image-stub')) { const stub = e.target.closest('.image-stub'); if(stub.dataset.src) openImageModal(stub.dataset.src); }
-    else if(e.target.classList.contains('word')) { showTooltip(e.target, e.target.dataset.word); }
-    else if(e.target.classList.contains('para-tts-btn')) { e.stopPropagation(); const p = e.target.closest('.trans-p'); if(!p.classList.contains('translated')) await doTrans(p); stopAudio(); state.isAudioPlaying = true; e.target.classList.add('playing'); await playFullAudio(p.innerText.replace('🔊', '').trim(), ui.tgtLang.value); e.target.classList.remove('playing'); showGlobalStop(false); state.isAudioPlaying = false; }
-    else if(e.target.closest('.trans-p') && !e.target.classList.contains('para-tts-btn') && !e.target.closest('.image-stub')) { doTrans(e.target.closest('.trans-p')); }
-    else if(e.target.classList.contains('close-tip') || (!e.target.closest('#tooltip') && ui.tooltip.style.display === 'block') && e.target.id !== 'translateSelBtn') { ui.tooltip.style.display = 'none'; document.querySelectorAll('.word.active').forEach(x => x.classList.remove('active')); }
-}
-function stopAllWork() { state.isWorking = false; state.isAudioPlaying = false; ui.btnStart.disabled = false; ui.btnRead.disabled = false; ui.btnStop.disabled = true; stopAudio(); showGlobalStop(false); document.querySelectorAll('.playing').forEach(el => el.classList.remove('playing')); document.querySelectorAll('.trans-p.reading').forEach(e => e.classList.remove('reading')); }
-
-async function startTranslation() { 
-    if(state.isWorking) return; 
-    state.isWorking = true; 
-    ui.btnStart.disabled = true; 
-    ui.btnStop.disabled = false; 
-    
-    const els = Array.from(document.querySelectorAll('.trans-p:not(.image-stub)')); 
-    const idx = getStartIndex(); 
-    
-    for(let i=idx; i<els.length; i++) { 
-        if(!state.isWorking) break; 
-        if(!els[i].classList.contains('translated')) { 
-            await doTrans(els[i]); 
-            await new Promise(r => requestAnimationFrame(r));
-            // Здесь мы используем умный скролл, но он теперь
-            // должен дружить с setupSync
-            scrollToSmart(els[i], ui.trans);
-            await sleep(400); 
-        } 
-    } 
-    stopAllWork(); 
-}
-
-function scrollToSmart(el, container) {
-    const rect = el.getBoundingClientRect();
-    const cRect = container.getBoundingClientRect();
-    const isVisible = (rect.top >= cRect.top + 50 && rect.bottom <= cRect.bottom - 50);
-
-    if (!isVisible) {
-        // Чтобы умный скролл не вызывал "войну" синхронизации,
-        // мы временно помечаем, что скроллим правую часть
-        state.isSyncingRight = true; 
-        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        // Снимаем блокировку через время анимации
-        setTimeout(() => { state.isSyncingRight = false; }, 500);
+    if (e.target.closest('.image-stub')) {
+        const stub = e.target.closest('.image-stub');
+        if(stub.dataset.src) openImageModal(stub.dataset.src);
+    }
+    else if(e.target.classList.contains('word')) {
+        showTooltip(e.target, e.target.dataset.word);
+    }
+    else if(e.target.classList.contains('para-tts-btn')) {
+        e.stopPropagation();
+        const p = e.target.closest('.trans-p');
+        if(!p.classList.contains('translated')) await doTrans(p);
+        stopAudio();
+        state.isAudioPlaying = true;
+        e.target.classList.add('playing');
+        await playFullAudio(p.innerText.replace('🔊', '').trim(), ui.tgtLang.value);
+        e.target.classList.remove('playing');
+        showGlobalStop(false); state.isAudioPlaying = false;
+    }
+    else if(e.target.closest('.trans-p') && !e.target.classList.contains('para-tts-btn') && !e.target.closest('.image-stub')) {
+        doTrans(e.target.closest('.trans-p'));
+    }
+    else if(e.target.classList.contains('close-tip') || (!e.target.closest('#tooltip') && ui.tooltip.style.display === 'block') && e.target.id !== 'translateSelBtn') {
+        ui.tooltip.style.display = 'none';
+        document.querySelectorAll('.word.active').forEach(x => x.classList.remove('active'));
     }
 }
 
-async function startReading() { if(state.isWorking) return; state.isWorking = true; ui.btnStart.disabled = true; ui.btnStop.disabled = false; const els = Array.from(document.querySelectorAll('.trans-p:not(.image-stub)')); const idx = getStartIndex(); const lang = ui.tgtLang.value; for(let i=idx; i<els.length; i++) { if(!state.isWorking) break; const el = els[i]; if(!el.classList.contains('translated')) { await doTrans(el); await sleep(300); } document.querySelectorAll('.trans-p.reading').forEach(e => e.classList.remove('reading')); el.classList.add('reading'); el.scrollIntoView({behavior:"smooth", block:"center"}); const btn = el.querySelector('.para-tts-btn'); if(btn) btn.classList.add('playing'); await playFullAudio(el.innerText.replace('🔊','').trim(), lang); if(btn) btn.classList.remove('playing'); await sleep(200); } stopAllWork(); }
-async function doTrans(el) { if(el.classList.contains('translated')) return true; el.classList.add('loading', 'current'); const text = el.dataset.text; const src = ui.srcLang.value; const tgt = ui.tgtLang.value; try { let t = await getCachedTranslation(text, src, tgt); if (!t) { t = await translateApi(text, src, tgt); if (t) await saveCachedTranslation(text, src, tgt, t); } el.innerHTML = `<button class="para-tts-btn">🔊</button>${t}`; el.classList.add('translated'); return true; } catch (e) { el.classList.add('error'); return false; } finally { el.classList.remove('loading', 'current'); } }
-async function playFullAudio(text, lang) { showGlobalStop(true); const provider = ui.voiceSrc.value; const rateEl = document.getElementById('rateRange'); const rate = rateEl ? parseFloat(rateEl.value) : 1.0; if (provider === 'google') { const chunks = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text]; for (let chunk of chunks) { if(!state.isWorking && !state.isAudioPlaying) break; chunk = chunk.trim(); if(!chunk) continue; if (chunk.length > 180) { const sub = chunk.match(/.{1,180}(?:\s|$)/g); if(sub) { for(let s of sub) await playGoogleSingle(s, lang, rate); continue; } } await playGoogleSingle(chunk, lang, rate); } } else { let gender = 'f'; if (lang.startsWith('ru')) gender = ui.voiceRu.value; else if (lang.startsWith('en')) gender = ui.voiceEn.value; else if (lang.startsWith('de')) gender = ui.voiceDe.value; await speakDevice(text, lang, gender, provider, rate); } if(!state.isWorking) showGlobalStop(false); }
-async function showTooltip(el, text) { document.querySelectorAll('.word.active').forEach(x => x.classList.remove('active')); el.classList.add('active'); const rect = el.getBoundingClientRect(); ui.tooltip.style.top = (rect.bottom + 5) + 'px'; let l = rect.left; if (l + 250 > window.innerWidth) l = window.innerWidth - 260; ui.tooltip.style.left = l + 'px'; ui.tooltip.style.transform = 'none'; ui.tooltip.style.display = 'block'; ui.tooltip.innerHTML = `<span class="t-word">${text}</span><span>⏳</span>`; try { const lang = ui.srcLang.value; const [trans, phon] = await Promise.all([ translateApi(text, lang, ui.tgtLang.value), fetchPhonetics(text, lang) ]); const targetLang = lang === 'auto' ? 'en' : lang; ui.tooltip.innerHTML = `<div class="tt-header"><span class="t-word">${text}</span><button class="t-tts-btn">🔊</button></div>${phon.ipa ? `<span class="t-ipa">[${phon.ipa}]</span>` : ''} ${phon.cyr ? `<span class="t-rus">"${phon.cyr}"</span>` : ''}<span class="t-trans">${trans}</span><button class="close-tip">X</button>`; ui.tooltip.querySelector('.t-tts-btn').onclick = async (e) => { e.stopPropagation(); e.target.classList.add('playing'); await playFullAudio(text, targetLang); e.target.classList.remove('playing'); }; } catch(e) { ui.tooltip.innerHTML = "Error"; } }
-let selText = "", selTimeout; function setupSelectionBar() { document.addEventListener('selectionchange', () => { clearTimeout(selTimeout); selTimeout = setTimeout(() => { const sel = window.getSelection(); const txt = sel.toString().trim(); if(txt && txt.length > 1 && ui.orig.contains(sel.anchorNode)) { selText = txt; ui.selBar.classList.add('visible'); } else { ui.selBar.classList.remove('visible'); } }, 300); }); if(ui.selBtn) { ui.selBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); if(selText) { showPopupPhrase(selText); ui.selBar.classList.remove('visible'); }}; } }
-async function showPopupPhrase(text) { ui.tooltip.style.display='block'; ui.tooltip.style.top='50%'; ui.tooltip.style.left='50%'; ui.tooltip.style.transform='translate(-50%,-50%)'; ui.tooltip.style.maxWidth='80%'; ui.tooltip.innerHTML=`<span class="t-word">${text.substring(0,50)}...</span><span>⏳</span>`; try { const trans = await translateApi(text, ui.srcLang.value, ui.tgtLang.value); const safeText = text.replace(/'/g, "\\'").replace(/\n/g, ' '); const lang = ui.srcLang.value === 'auto' ? 'en' : ui.srcLang.value; ui.tooltip.innerHTML = `<div class="tt-header"><span class="t-word">${text.substring(0,30)}...</span><button class="t-tts-btn">🔊</button></div><span class="t-trans">${trans}</span><button class="close-tip">X</button>`; ui.tooltip.querySelector('.t-tts-btn').onclick = async (e) => { e.stopPropagation(); e.target.classList.add('playing'); await playFullAudio(safeText, lang); e.target.classList.remove('playing'); }; } catch(e) { ui.tooltip.innerHTML="Error"; } }
-function setupResizer() { let isResizing = false; const startResize = (e) => { isResizing = true; if(e.type === 'touchstart') e.preventDefault(); ui.resizer.classList.add('active'); }; const stopResize = () => { isResizing = false; ui.resizer.classList.remove('active'); }; const doResize = (e) => { if(!isResizing) return; let cy = e.type.startsWith('touch') ? e.touches[0].clientY : e.clientY; let cx = e.type.startsWith('touch') ? e.touches[0].clientX : e.clientX; const r = ui.container.getBoundingClientRect(); if(state.isVertical) { let pct = ((cy - r.top) / r.height) * 100; if(pct > 10 && pct < 90) { ui.panel1.style.flex = `0 0 ${pct}%`; ui.panel2.style.flex = '1'; } } else { let pct = ((cx - r.left) / r.width) * 100; if(pct > 10 && pct < 90) { ui.panel1.style.flex = `0 0 ${pct}%`; ui.panel2.style.flex = '1'; } } }; ui.resizer.addEventListener('mousedown', startResize); document.addEventListener('mouseup', stopResize); document.addEventListener('mousemove', doResize); ui.resizer.addEventListener('touchstart', startResize); document.addEventListener('touchend', stopResize); document.addEventListener('touchmove', doResize); }
+function setupNavigationZones() {
+    const scrollPage = (direction) => {
+        const scrollAmount = window.innerHeight * 0.8;
+        const el = ui.orig;
+        if (direction === 1 && el.scrollTop + el.clientHeight >= el.scrollHeight - 50) {
+            loadChapter(state.currentIdx + 1);
+        } else if (direction === -1 && el.scrollTop <= 0) {
+            loadChapter(state.currentIdx - 1);
+        } else {
+            el.scrollBy({ top: scrollAmount * direction, behavior: 'smooth' });
+        }
+    };
+    if(ui.zoneRight) ui.zoneRight.onclick = (e) => { e.stopPropagation(); scrollPage(1); };
+    if(ui.zoneLeft) ui.zoneLeft.onclick = (e) => { e.stopPropagation(); scrollPage(-1); };
+}
+
+function setupSwipeGestures() {
+    let touchStartX = 0, touchStartY = 0;
+    ui.container.addEventListener('touchstart', (e) => {
+        touchStartX = e.changedTouches[0].screenX;
+        touchStartY = e.changedTouches[0].screenY;
+    }, {passive: true});
+    ui.container.addEventListener('touchend', (e) => {
+        const dx = e.changedTouches[0].screenX - touchStartX;
+        const dy = e.changedTouches[0].screenY - touchStartY;
+        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 100) {
+            if (dx < 0) loadChapter(state.currentIdx + 1); else loadChapter(state.currentIdx - 1);
+        }
+    }, {passive: true});
+}
+// --- Функция авто-восстановления переводов ---
+// --- Оптимизированная функция авто-восстановления (Lazy Load) ---
+function restoreChapterTranslations() {
+    // Если был старый наблюдатель - отключаем его, чтобы не ел память
+    if (state.translationObserver) {
+        state.translationObserver.disconnect();
+    }
+
+    const src = ui.srcLang.value;
+    const tgt = ui.tgtLang.value;
+
+    // Создаем нового наблюдателя
+    state.translationObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach(async (entry) => {
+            // Если элемент появился на экране (isIntersecting)
+            if (entry.isIntersecting) {
+                const el = entry.target;
+                
+                // Сразу перестаем следить за ним, чтобы не проверять дважды
+                observer.unobserve(el);
+
+                const text = el.dataset.text;
+                if (!text) return;
+
+                try {
+                    // Спрашиваем базу
+                    const t = await getCachedTranslation(text, src, tgt);
+                    if (t && el.isConnected && !el.classList.contains('translated')) {
+                        // Используем requestAnimationFrame для плавности UI
+                        requestAnimationFrame(() => {
+                            el.innerHTML = `<button class="para-tts-btn">🔊</button>${t}`;
+                            el.classList.add('translated');
+                        });
+                    }
+                } catch (e) { }
+            }
+        });
+    }, {
+        root: ui.trans, // Следим внутри панели перевода
+        rootMargin: '500px' // Загружать заранее (за 500px до появления на экране)
+    });
+
+    // Натравливаем наблюдателя на все непереведенные параграфы
+    const els = document.querySelectorAll('.trans-p:not(.translated):not(.image-stub)');
+    els.forEach(el => state.translationObserver.observe(el));
+}
+function stopAllWork() {
+    state.isWorking = false; state.isAudioPlaying = false;
+    ui.btnStart.disabled = false; ui.btnRead.disabled = false; ui.btnStop.disabled = true;
+    stopAudio(); showGlobalStop(false);
+    document.querySelectorAll('.playing').forEach(el => el.classList.remove('playing'));
+    document.querySelectorAll('.trans-p.reading').forEach(e => e.classList.remove('reading'));
+}
+async function startTranslation() {
+    if(state.isWorking) return; state.isWorking = true;
+    ui.btnStart.disabled = true; ui.btnStop.disabled = false;
+    const els = Array.from(document.querySelectorAll('.trans-p:not(.image-stub)'));
+    const idx = getStartIndex();
+    for(let i=idx; i<els.length; i++) {
+        if(!state.isWorking) break;
+        if(!els[i].classList.contains('translated')) { await doTrans(els[i]); els[i].scrollIntoView({behavior:"smooth", block:"center"}); await sleep(400); }
+    }
+    stopAllWork();
+}
+async function startReading() {
+    if(state.isWorking) return; state.isWorking = true;
+    ui.btnStart.disabled = true; ui.btnStop.disabled = false;
+    const els = Array.from(document.querySelectorAll('.trans-p:not(.image-stub)'));
+    const idx = getStartIndex();
+    const lang = ui.tgtLang.value;
+    for(let i=idx; i<els.length; i++) {
+        if(!state.isWorking) break;
+        const el = els[i];
+        if(!el.classList.contains('translated')) { await doTrans(el); await sleep(300); }
+        document.querySelectorAll('.trans-p.reading').forEach(e => e.classList.remove('reading'));
+        el.classList.add('reading'); el.scrollIntoView({behavior:"smooth", block:"center"});
+        const btn = el.querySelector('.para-tts-btn'); if(btn) btn.classList.add('playing');
+        await playFullAudio(el.innerText.replace('🔊','').trim(), lang);
+        if(btn) btn.classList.remove('playing'); await sleep(200);
+    }
+    stopAllWork();
+}
+async function doTrans(el) {
+    // Если уже переведено - выходим
+    if(el.classList.contains('translated')) return true;
+    
+    el.classList.add('loading', 'current');
+    
+    const text = el.dataset.text;
+    const src = ui.srcLang.value;
+    const tgt = ui.tgtLang.value;
+
+    try {
+        // 1. Сначала ищем в базе данных (КЭШ)
+        let t = await getCachedTranslation(text, src, tgt);
+        
+        // 2. Если в базе нет - идем в интернет (API)
+        if (!t) {
+            t = await translateApi(text, src, tgt);
+            // 3. Сохраняем результат в базу
+            if (t) await saveCachedTranslation(text, src, tgt, t);
+        }
+
+        // Отображаем
+        el.innerHTML = `<button class="para-tts-btn">🔊</button>${t}`;
+        el.classList.add('translated');
+        return true;
+    } catch (e) {
+        console.error(e);
+        el.classList.add('error');
+        return false;
+    } finally {
+        el.classList.remove('loading', 'current');
+    }
+}
+async function playFullAudio(text, lang) {
+    showGlobalStop(true);
+    const provider = ui.voiceSrc.value;
+    const rateEl = document.getElementById('rateRange');
+    const rate = rateEl ? parseFloat(rateEl.value) : 1.0;
+    if (provider === 'google') {
+        const chunks = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
+        for (let chunk of chunks) {
+             if(!state.isWorking && !state.isAudioPlaying) break;
+             chunk = chunk.trim(); if(!chunk) continue;
+             if (chunk.length > 180) {
+                 const sub = chunk.match(/.{1,180}(?:\s|$)/g);
+                 if(sub) { for(let s of sub) await playGoogleSingle(s, lang, rate); continue; }
+             }
+             await playGoogleSingle(chunk, lang, rate);
+        }
+    } else {
+        let gender = 'f';
+        if (lang.startsWith('ru')) gender = ui.voiceRu.value; else if (lang.startsWith('en')) gender = ui.voiceEn.value; else if (lang.startsWith('de')) gender = ui.voiceDe.value;
+        await speakDevice(text, lang, gender, provider, rate);
+    }
+    if(!state.isWorking) showGlobalStop(false);
+}
+async function showTooltip(el, text) {
+    document.querySelectorAll('.word.active').forEach(x => x.classList.remove('active')); el.classList.add('active');
+    const rect = el.getBoundingClientRect();
+    ui.tooltip.style.top = (rect.bottom + 5) + 'px';
+    let l = rect.left; if (l + 250 > window.innerWidth) l = window.innerWidth - 260;
+    ui.tooltip.style.left = l + 'px'; ui.tooltip.style.transform = 'none'; ui.tooltip.style.display = 'block';
+    ui.tooltip.innerHTML = `<span class="t-word">${text}</span><span>⏳</span>`;
+    try {
+        const lang = ui.srcLang.value;
+        const [trans, phon] = await Promise.all([ translateApi(text, lang, ui.tgtLang.value), fetchPhonetics(text, lang) ]);
+        const targetLang = lang === 'auto' ? 'en' : lang;
+        ui.tooltip.innerHTML = `<div class="tt-header"><span class="t-word">${text}</span><button class="t-tts-btn">🔊</button></div>${phon.ipa ? `<span class="t-ipa">[${phon.ipa}]</span>` : ''} ${phon.cyr ? `<span class="t-rus">"${phon.cyr}"</span>` : ''}<span class="t-trans">${trans}</span><button class="close-tip">X</button>`;
+        ui.tooltip.querySelector('.t-tts-btn').onclick = async (e) => { e.stopPropagation(); e.target.classList.add('playing'); await playFullAudio(text, targetLang); e.target.classList.remove('playing'); };
+    } catch(e) { ui.tooltip.innerHTML = "Error"; }
+}
+let selText = "", selTimeout;
+function setupSelectionBar() {
+    document.addEventListener('selectionchange', () => {
+        clearTimeout(selTimeout);
+        selTimeout = setTimeout(() => {
+            const sel = window.getSelection(); const txt = sel.toString().trim();
+            if(txt && txt.length > 1 && ui.orig.contains(sel.anchorNode)) { selText = txt; ui.selBar.classList.add('visible'); } else { ui.selBar.classList.remove('visible'); }
+        }, 300);
+    });
+    if(ui.selBtn) {
+        ui.selBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); if(selText) { showPopupPhrase(selText); ui.selBar.classList.remove('visible'); }};
+    }
+}
+async function showPopupPhrase(text) {
+    ui.tooltip.style.display='block'; ui.tooltip.style.top='50%'; ui.tooltip.style.left='50%'; ui.tooltip.style.transform='translate(-50%,-50%)'; ui.tooltip.style.maxWidth='80%';
+    ui.tooltip.innerHTML=`<span class="t-word">${text.substring(0,50)}...</span><span>⏳</span>`;
+    try {
+        const trans = await translateApi(text, ui.srcLang.value, ui.tgtLang.value);
+        const safeText = text.replace(/'/g, "\\'").replace(/\n/g, ' ');
+        const lang = ui.srcLang.value === 'auto' ? 'en' : ui.srcLang.value;
+        ui.tooltip.innerHTML = `<div class="tt-header"><span class="t-word">${text.substring(0,30)}...</span><button class="t-tts-btn">🔊</button></div><span class="t-trans">${trans}</span><button class="close-tip">X</button>`;
+        ui.tooltip.querySelector('.t-tts-btn').onclick = async (e) => { e.stopPropagation(); e.target.classList.add('playing'); await playFullAudio(safeText, lang); e.target.classList.remove('playing'); };
+    } catch(e) { ui.tooltip.innerHTML="Error"; }
+}
+function setupResizer() {
+    let isResizing = false;
+    const startResize = (e) => { isResizing = true; if(e.type === 'touchstart') e.preventDefault(); ui.resizer.classList.add('active'); };
+    const stopResize = () => { isResizing = false; ui.resizer.classList.remove('active'); };
+    const doResize = (e) => {
+        if(!isResizing) return;
+        let cy = e.type.startsWith('touch') ? e.touches[0].clientY : e.clientY;
+        let cx = e.type.startsWith('touch') ? e.touches[0].clientX : e.clientX;
+        const r = ui.container.getBoundingClientRect();
+        if(state.isVertical) {
+            let pct = ((cy - r.top) / r.height) * 100;
+            if(pct > 10 && pct < 90) { ui.panel1.style.flex = `0 0 ${pct}%`; ui.panel2.style.flex = '1'; }
+        } else {
+            let pct = ((cx - r.left) / r.width) * 100;
+            if(pct > 10 && pct < 90) { ui.panel1.style.flex = `0 0 ${pct}%`; ui.panel2.style.flex = '1'; }
+        }
+    };
+    ui.resizer.addEventListener('mousedown', startResize); document.addEventListener('mouseup', stopResize); document.addEventListener('mousemove', doResize);
+    ui.resizer.addEventListener('touchstart', startResize); document.addEventListener('touchend', stopResize); document.addEventListener('touchmove', doResize);
+}
 function toggleLayout() { state.isVertical = !state.isVertical; updateLayoutUI(); }
-function updateLayoutUI() { if (state.isVertical) { ui.container.style.flexDirection = 'column'; ui.resizer.style.width = '100%'; ui.resizer.style.height = '12px'; ui.resizer.style.cursor = 'row-resize'; ui.layoutBtn.innerText = '⬍'; } else { ui.container.style.flexDirection = 'row'; ui.resizer.style.width = '12px'; ui.resizer.style.height = '100%'; ui.resizer.style.cursor = 'col-resize'; ui.layoutBtn.innerText = '⬄'; } ui.panel1.style.flex = '1'; ui.panel2.style.flex = '1'; }
-function getStartIndex() { const blocks = Array.from(document.querySelectorAll('.trans-p:not(.image-stub)')); const top = ui.trans.scrollTop; let idx = blocks.findIndex(b => b.offsetTop + b.clientHeight > top); return idx === -1 ? 0 : idx; }
-function setupSync() { ui.orig.onscroll = () => { if(state.t_sync) return; state.t_sync = requestAnimationFrame(() => { syncScroll(ui.orig, ui.trans); state.t_sync = null; saveProgress(); }); }; ui.trans.onscroll = () => { if(state.t_sync) return; state.t_sync = requestAnimationFrame(() => { syncScroll(ui.trans, ui.orig); state.t_sync = null; }); }; }
+function updateLayoutUI() {
+    if (state.isVertical) { ui.container.style.flexDirection = 'column'; ui.resizer.style.width = '100%'; ui.resizer.style.height = '12px'; ui.resizer.style.cursor = 'row-resize'; ui.layoutBtn.innerText = '⬍'; } 
+    else { ui.container.style.flexDirection = 'row'; ui.resizer.style.width = '12px'; ui.resizer.style.height = '100%'; ui.resizer.style.cursor = 'col-resize'; ui.layoutBtn.innerText = '⬄'; }
+    ui.panel1.style.flex = '1'; ui.panel2.style.flex = '1';
+}
+function getStartIndex() {
+    const blocks = Array.from(document.querySelectorAll('.trans-p:not(.image-stub)'));
+    const top = ui.trans.scrollTop;
+    let idx = blocks.findIndex(b => b.offsetTop + b.clientHeight > top);
+    return idx === -1 ? 0 : idx;
+}
+function setupSync() {
+    ui.orig.onscroll = () => { 
+        if(state.t_sync) return; 
+        state.t_sync = requestAnimationFrame(() => { 
+            syncScroll(ui.orig, ui.trans); 
+            state.t_sync = null; 
+            saveProgress(); 
+        }); 
+    };
+    ui.trans.onscroll = () => { if(state.t_sync) return; state.t_sync = requestAnimationFrame(() => { syncScroll(ui.trans, ui.orig); state.t_sync = null; }); };
+}
 const syncScroll = (a, b) => { if(a.scrollHeight - a.clientHeight > 0) b.scrollTop = (a.scrollTop / (a.scrollHeight - a.clientHeight)) * (b.scrollHeight - b.clientHeight); };
 const setStatus = (msg) => ui.status.innerText = msg;
 const showLoad = () => ui.loader.style.display = 'flex';
