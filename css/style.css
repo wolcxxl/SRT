@@ -341,8 +341,14 @@ button.active-state {
 
 /* Добавляем стабилизацию скролла для контейнеров */
 .content-area {
-    /* ... старые стили ... */
-    overflow-anchor: none;    /* ЗАПРЕЩАЕТ браузеру самовольно сдвигать скролл при изменении контента */
+    /* ... ваши старые стили ... */
+    scroll-behavior: smooth; /* Важно для JS */
+    -webkit-overflow-scrolling: touch; /* Включает инерцию на iOS */
+}
+
+/* Добавьте отступ прокрутки для абзацев, чтобы текст не лип к самому верху */
+.trans-p, .orig-p {
+    scroll-margin-block: 40px; 
 }
 
 .trans-p.translated {

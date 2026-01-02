@@ -504,15 +504,41 @@ function stopAllWork() {
     document.querySelectorAll('.trans-p.reading').forEach(e => e.classList.remove('reading'));
 }
 async function startTranslation() {
-    if(state.isWorking) return; state.isWorking = true;
+    if(state.isWorking) return; 
+    state.isWorking = true;
     ui.btnStart.disabled = true; ui.btnStop.disabled = false;
-    const els = Array.from(document.querySelectorAll('.trans-p:not(.image-stub)'));
+
+    // Получаем ВСЕ абзацы из обоих панелей
+    const transEls = Array.from(document.querySelectorAll('.trans-p:not(.image-stub)'));
+    const origEls = Array.from(document.querySelectorAll('.orig-p:not(.image-stub)')); // Добавляем оригиналы
+
     const idx = getStartIndex();
-    for(let i=idx; i<els.length; i++) {
+    
+    for(let i = idx; i < transEls.length; i++) {
         if(!state.isWorking) break;
-        if(!els[i].classList.contains('translated')) { await doTrans(els[i]);   els[i].scrollIntoView({behavior: "smooth", block: "nearest"}); await sleep(400); }
+        
+        const elTrans = transEls[i];
+        const elOrig = origEls[i]; // Находим соответствующий оригинал по индексу
+
+        if(!elTrans.classList.contains('translated')) { 
+            // 1. Делаем перевод
+            await doTrans(elTrans); 
+            
+            // 2. Умный скролл ДВУХ панелей
+            // Скроллим перевод
+            smartScrollTo(ui.trans, elTrans);
+            
+            // Скроллим оригинал (чтобы они сошлись)
+            if (elOrig) {
+                smartScrollTo(ui.orig, elOrig);
+            }
+
+            // 3. Небольшая пауза
+            await sleep(100); 
+        }
     }
     stopAllWork();
+}
 }
 async function startReading() {
     if(state.isWorking) return; state.isWorking = true;
@@ -676,3 +702,31 @@ const showLoad = () => ui.loader.style.display = 'flex';
 const hideLoad = () => ui.loader.style.display = 'none';
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const showGlobalStop = (show) => { if (ui.globalStop) ui.globalStop.style.display = show ? 'flex' : 'none'; state.isAudioPlaying = show; };
+// В конец файла js/app.js
+
+function smartScrollTo(container, element) {
+    if (!element || !container) return;
+
+    // Параметры "зоны комфорта" (отступы сверху и снизу)
+    const margin = 50; 
+    const containerRect = container.getBoundingClientRect();
+    const elRect = element.getBoundingClientRect();
+
+    // Вычисляем позицию элемента относительно контейнера
+    const relativeTop = elRect.top - containerRect.top;
+    const relativeBottom = elRect.bottom - containerRect.top;
+
+    // Проверяем, виден ли элемент сейчас (полностью)
+    const isVisible = (relativeTop >= margin) && (relativeBottom <= containerRect.height - margin);
+
+    if (isVisible) return; // Если виден — не дергаем экран вообще!
+
+    // Если не виден — аккуратно подкручиваем
+    // Вычисляем точную позицию для скролла (центруем элемент)
+    const targetScroll = container.scrollTop + relativeTop - (containerRect.height / 2) + (elRect.height / 2);
+
+    container.scrollTo({
+        top: targetScroll,
+        behavior: 'smooth' 
+    });
+}
