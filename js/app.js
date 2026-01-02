@@ -15,7 +15,9 @@ const state = {
     isAudioPlaying: false,
     isVertical: true,
     isZonesEnabled: false,
-    t_sync: null,
+    // Флаги для синхронизации скролла
+    isSyncingLeft: false,
+    isSyncingRight: false,
     saveTimeout: null,
     translationObserver: null
 };
@@ -159,7 +161,7 @@ function setupEventListeners() {
     if(ui.modalClose) ui.modalClose.onclick = closeImageModal;
     if(ui.imageModal) ui.imageModal.onclick = (e) => { if(e.target === ui.imageModal) closeImageModal(); };
 
-    setupSync();
+    setupSync(); // <--- ВОТ ЗДЕСЬ ИНИЦИАЛИЗИРУЕТСЯ СИНХРОНИЗАЦИЯ
     updateLayoutUI(); 
     updateZonesState();
 }
@@ -344,6 +346,50 @@ function setupSwipeGestures() {
     }, {passive: true});
 }
 
+// === ИСПРАВЛЕННАЯ СИНХРОНИЗАЦИЯ ===
+function setupSync() {
+    // Синхронизация: Оригинал -> Перевод
+    ui.orig.addEventListener('scroll', () => {
+        // Если скролл вызван вторым окном (переводом), то ничего не делаем
+        if (state.isSyncingRight) return;
+        
+        state.isSyncingLeft = true; // Блокируем обратный скролл
+        
+        const a = ui.orig;
+        const b = ui.trans;
+        
+        if (a.scrollHeight - a.clientHeight > 0) {
+            const percentage = a.scrollTop / (a.scrollHeight - a.clientHeight);
+            b.scrollTop = percentage * (b.scrollHeight - b.clientHeight);
+        }
+        
+        // Сохраняем прогресс (с задержкой)
+        saveProgress();
+        
+        // Снимаем блокировку через небольшой таймаут
+        clearTimeout(state.t_sync);
+        state.t_sync = setTimeout(() => { state.isSyncingLeft = false; }, 50);
+    });
+
+    // Синхронизация: Перевод -> Оригинал
+    ui.trans.addEventListener('scroll', () => {
+        if (state.isSyncingLeft) return;
+
+        state.isSyncingRight = true;
+
+        const a = ui.trans;
+        const b = ui.orig;
+
+        if (a.scrollHeight - a.clientHeight > 0) {
+            const percentage = a.scrollTop / (a.scrollHeight - a.clientHeight);
+            b.scrollTop = percentage * (b.scrollHeight - b.clientHeight);
+        }
+        
+        clearTimeout(state.t_sync);
+        state.t_sync = setTimeout(() => { state.isSyncingRight = false; }, 50);
+    });
+}
+
 function saveProgress(chapterIdx, scrollTop) { clearTimeout(state.saveTimeout); state.saveTimeout = setTimeout(() => { saveProgressNow(chapterIdx, scrollTop); }, 1000); }
 function saveProgressNow(chapterIdx, scrollTop) { if (!state.currentBookId) return; const ch = (chapterIdx !== undefined) ? chapterIdx : state.currentIdx; const scr = (scrollTop !== undefined) ? scrollTop : ui.orig.scrollTop; updateBookProgress(state.currentBookId, ch, scr); }
 
@@ -376,7 +422,6 @@ async function handleGlobalClicks(e) {
 }
 function stopAllWork() { state.isWorking = false; state.isAudioPlaying = false; ui.btnStart.disabled = false; ui.btnRead.disabled = false; ui.btnStop.disabled = true; stopAudio(); showGlobalStop(false); document.querySelectorAll('.playing').forEach(el => el.classList.remove('playing')); document.querySelectorAll('.trans-p.reading').forEach(e => e.classList.remove('reading')); }
 
-// === ИСПРАВЛЕННАЯ ФУНКЦИЯ АВТО-ПЕРЕВОДА ===
 async function startTranslation() { 
     if(state.isWorking) return; 
     state.isWorking = true; 
@@ -390,34 +435,28 @@ async function startTranslation() {
         if(!state.isWorking) break; 
         if(!els[i].classList.contains('translated')) { 
             await doTrans(els[i]); 
-            
-            // --- FIX FOR IOS JITTER ---
-            // 1. Ждем, пока браузер отрисует изменение высоты
             await new Promise(r => requestAnimationFrame(r));
-            
-            // 2. Умный скролл: если элемент не виден, скроллим аккуратно
+            // Здесь мы используем умный скролл, но он теперь
+            // должен дружить с setupSync
             scrollToSmart(els[i], ui.trans);
-            
-            // 3. Небольшая задержка для глаз
             await sleep(400); 
         } 
     } 
     stopAllWork(); 
 }
 
-// === НОВАЯ ФУНКЦИЯ: Умный скролл для iOS ===
 function scrollToSmart(el, container) {
     const rect = el.getBoundingClientRect();
     const cRect = container.getBoundingClientRect();
-    
-    // Элемент виден, если его верх >= верха контейнера И низ <= низа контейнера
-    // Добавляем отступы (50px), чтобы не скроллить, если элемент почти виден
     const isVisible = (rect.top >= cRect.top + 50 && rect.bottom <= cRect.bottom - 50);
 
     if (!isVisible) {
-        // block: "nearest" - самое важное. Он скроллит ровно столько, сколько нужно,
-        // чтобы элемент появился, и не пытается центрировать его (что вызывает прыжки)
+        // Чтобы умный скролл не вызывал "войну" синхронизации,
+        // мы временно помечаем, что скроллим правую часть
+        state.isSyncingRight = true; 
         el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        // Снимаем блокировку через время анимации
+        setTimeout(() => { state.isSyncingRight = false; }, 500);
     }
 }
 
