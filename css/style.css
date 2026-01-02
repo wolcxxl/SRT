@@ -372,3 +372,34 @@ body {
     #menu-bar { padding: 0 5px; }
     .nav-zone { width: 40px; }
 }
+/* --- FIX FOR JITTER (Стабилизация скролла) --- */
+
+/* 1. Запрещаем браузеру двигать скролл, когда меняется высота блоков сверху */
+.content-area {
+    overflow-anchor: none !important;
+}
+
+/* 2. Делаем перевод компактнее, чтобы он не "распирал" экран */
+.trans-p {
+    /* Чуть меньше шрифт (90% от оригинала) */
+    font-size: 0.9em !important; 
+    
+    /* Плотнее строки */
+    line-height: 1.35 !important; 
+}
+
+/* 3. Уменьшаем кнопку динамика внутри текста */
+.para-tts-btn {
+    font-size: 12px !important;
+    width: 20px !important;
+    height: 20px !important;
+    top: 4px !important;
+    right: 4px !important;
+}
+
+/* 4. Уменьшаем отступы для уже переведенного текста */
+.trans-p.translated {
+    padding-top: 2px !important;
+    padding-bottom: 2px !important;
+    margin-bottom: 0.8em !important;
+}
