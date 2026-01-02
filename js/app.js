@@ -510,7 +510,7 @@ async function startTranslation() {
     const idx = getStartIndex();
     for(let i=idx; i<els.length; i++) {
         if(!state.isWorking) break;
-        if(!els[i].classList.contains('translated')) { await doTrans(els[i]); els[i].scrollIntoView({behavior:"smooth", block:"center"}); await sleep(400); }
+       // if(!els[i].classList.contains('translated')) { await doTrans(els[i]); els[i].scrollIntoView({behavior:"smooth", block:"center"}); await sleep(400); }
     }
     stopAllWork();
 }
