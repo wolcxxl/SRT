@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Reader V17.2 (Better UX)</title>
+    <title>Reader V18 (Clean & Fix)</title>
     
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -53,31 +53,20 @@
         .sync-active { background-color: var(--highlight); border-radius: 4px; transition: background 0.2s; cursor: pointer; }
         .page p { margin-bottom: 10px; cursor: pointer; }
 
-        /* --- UX IMPROVEMENTS --- */
         .resizer { background: #ddd; z-index: 100; display: flex; justify-content: center; align-items: center; }
-        /* Шире разделитель (было 16px, стало 24px) */
         .split:not(.vertical) .resizer { width: 24px; margin: 0 -12px; cursor: col-resize; }
         .split.vertical .resizer { height: 24px; margin: -12px 0; cursor: row-resize; }
         
-        /* Базовый стиль ручки */
         .handle { 
             width: 24px; height: 24px; 
             background: var(--accent); border-radius: 50%; color: white; 
             display: flex; justify-content: center; align-items: center; 
             font-size: 10px; border: 2px solid #fff; pointer-events: auto; 
             box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* Плавная анимация */
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
-        /* Красный цвет для крестика */
         .handle.is-close { background: var(--red); }
-
-        /* Стиль ручки, когда панель скрыта (она сбоку) */
-        .split.is-hidden .handle {
-            width: 36px; height: 36px; /* Значительно больше */
-            font-size: 16px; /* Крупнее иконка */
-            border-width: 3px; /* Жирнее рамка */
-        }
-        /* ----------------------- */
+        .split.is-hidden .handle { width: 36px; height: 36px; font-size: 16px; border-width: 3px; }
 
         .bot-bar { height: 70px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: #f8f8f8; border-top: 1px solid #ddd; padding-bottom: env(safe-area-inset-bottom); }
         .nav-btn { font-size: 24px; color: var(--accent); background: none; border: none; padding: 10px; }
@@ -160,7 +149,7 @@
     let isBold = false; let isSyncing = false;
 
     // --- DB ---
-    const req = indexedDB.open("ReaderV17_2", 1);
+    const req = indexedDB.open("ReaderV18", 1);
     req.onupgradeneeded = e => { db=e.target.result; db.createObjectStore("books",{keyPath:"id",autoIncrement:true}); };
     req.onsuccess = e => { db=e.target.result; loadLib(); restoreLibSettings(); };
 
@@ -252,8 +241,13 @@
         };
     }
 
+    // --- MASTER PARSER WITH CLEANING ---
     async function parseAndRender(book) {
+        // !!! FIX 1: Clear Cache !!!
+        cache = {}; 
+        document.getElementById('p2').innerHTML = ""; 
         pages = [];
+        
         const type = book.type;
         document.getElementById('lang-from').value = document.getElementById('lib-from').value;
         document.getElementById('lang-to').value = document.getElementById('lib-to').value;
@@ -268,7 +262,6 @@
         document.getElementById('settings').classList.remove('open');
     }
 
-    // --- ROBUST GOOGLE TRANSLATE WITH PROXY FALLBACK ---
     async function googleTranslate(html, from, to) {
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = html;
@@ -281,7 +274,6 @@
         const separator = ' ||| ';
         const fullText = textNodes.map(node => node.textContent).join(separator);
         
-        // Multi-Proxy List
         const proxies = [
             (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
             (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
@@ -295,22 +287,13 @@
                 const res = await fetch(createProxy(targetUrl));
                 if(!res.ok) throw new Error('Proxy status ' + res.status);
                 const data = await res.json();
-                
                 const translatedFull = data[0].map(x => x[0]).join('');
                 const translatedParts = translatedFull.split(separator.trim());
-                
-                for(let i=0; i < textNodes.length && i < translatedParts.length; i++) {
-                    textNodes[i].textContent = translatedParts[i];
-                }
+                for(let i=0; i < textNodes.length && i < translatedParts.length; i++) textNodes[i].textContent = translatedParts[i];
                 return tempDiv.innerHTML;
-            } catch(e) {
-                console.warn("Proxy failed, trying next...", e);
-                continue; // Try next proxy
-            }
+            } catch(e) { console.warn("Proxy failed", e); continue; }
         }
-        
-        // If all failed
-        return `<div style="color:#d32f2f; background:#ffebee; padding:10px; border-radius:8px; margin-bottom:10px; font-size:12px;">Не удалось перевести. Google блокирует запросы. <br><button onclick="retryTrans()" style="margin-top:5px; background:var(--red); color:white; padding:5px 10px; border:none; border-radius:4px;">Попробовать снова</button></div>` + html;
+        return `<div style="color:#d32f2f; background:#ffebee; padding:10px; border-radius:8px;">Перевод не удался. <button onclick="retryTrans()" style="background:var(--red); color:white; border:none; padding:3px 8px; border-radius:4px;">Повторить</button></div>` + html;
     }
 
     function retryTrans() {
@@ -319,7 +302,6 @@
         render();
     }
 
-    // --- PARSERS ---
     async function parsePDF(buffer) {
         showLoader("PDF...");
         const pdf = await pdfjsLib.getDocument({data: buffer}).promise;
@@ -333,6 +315,7 @@
         }
         chunkContent(fullText);
     }
+
     async function parseEPUB(buffer) {
         showLoader("EPUB...");
         const zip = new JSZip();
@@ -369,33 +352,61 @@
             for(let j=0; j<manifestItems.length; j++) { if(manifestItems[j].getAttribute("id")===idref) { href=manifestItems[j].getAttribute("href"); break; } }
             if(href) {
                 let chContent = await zip.file(rootDir + href).async("text");
+                // Cleanup HTML
+                chContent = chContent.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gim, "")
+                                     .replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gim, "");
+                
                 for (const [key, blobUrl] of Object.entries(resources)) {
                     const filename = key.split('/').pop();
                     const regex = new RegExp(`src=["'].*?${filename}["']`, 'g');
                     chContent = chContent.replace(regex, `src="${blobUrl}"`);
                 }
+                
+                // Parse HTML to extract text content properly
                 const chDoc = parser.parseFromString(chContent, "text/html") || parser.parseFromString(chContent, "application/xhtml+xml");
                 if(chDoc.body) fullHtml += chDoc.body.innerHTML;
             }
         }
         chunkContent(fullHtml);
     }
+
+    // !!! FIX 2: Better Chunking !!!
     function chunkContent(html) {
-        html = html.replace(/\s\s+/g, ' ');
-        const tempDiv = document.createElement('div'); tempDiv.innerHTML = html;
+        // Create temp element to traverse nodes
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = html.replace(/\s\s+/g, ' '); // Compact spaces
+        
         let buf = "";
-        const children = tempDiv.childNodes;
-        for (let i = 0; i < children.length; i++) {
-            const node = children[i];
-            if (node.nodeType === 3) { if(node.textContent.trim()) buf += `<p>${node.textContent}</p>`; }
-            else if (node.nodeType === 1) {
-                 if (['IMG','P','DIV','H1','H2','H3','H4'].includes(node.tagName)) buf += node.outerHTML;
-                 else buf += `<p>${node.innerText}</p>`;
+        
+        // Deep Tree Walker to flatten structure
+        const walker = document.createTreeWalker(tempDiv, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+        let node;
+        
+        while(node = walker.nextNode()) {
+            if(node.nodeType === 3) { // Text Node
+                const txt = node.textContent.trim();
+                if(txt.length > 0) {
+                    // Check parent tag to decide if block or inline
+                    const parentTag = node.parentElement.tagName;
+                    if(['P','DIV','H1','H2','H3','LI'].includes(parentTag)) {
+                        buf += `<p>${txt}</p>`;
+                    } else {
+                        buf += ` ${txt} `; // Inline text
+                    }
+                }
+            } else if (node.nodeType === 1 && node.tagName === 'IMG') {
+                buf += node.outerHTML;
             }
-            if (buf.length > 1500) { pages.push(buf); buf = ""; }
+            
+            // Cut page if buffer is big enough
+            if (buf.length > 1000) {
+                pages.push(buf);
+                buf = "";
+            }
         }
-        if(buf) pages.push(buf);
+        if(buf.length > 0) pages.push(buf);
     }
+
     function parseFB2(xml) {
         xml = xml.replace(/xmlns.*?=".*?"/g, ''); 
         const parser = new DOMParser();
@@ -418,13 +429,14 @@
                 if(h && h.startsWith('#')) h = h.substring(1);
                 if(bins[h]) buf += `<img src="${bins[h]}">`;
             }
-            if(buf.length > 1500) { pages.push(buf); buf=""; }
+            if(buf.length > 1000) { pages.push(buf); buf=""; }
         }
         if(buf) pages.push(buf);
     }
+
     function parseTXT(t) {
         let buf = "";
-        t.split('\n').forEach(l => { if(l.trim()) buf += `<p>${l}</p>`; if(buf.length > 1500) { pages.push(buf); buf=""; } });
+        t.split('\n').forEach(l => { if(l.trim()) buf += `<p>${l}</p>`; if(buf.length > 1000) { pages.push(buf); buf=""; } });
         if(buf) pages.push(buf);
     }
 
@@ -520,15 +532,13 @@
     }
     function onUp(e) { isResizing=false; rs.releasePointerCapture(e.pointerId); }
     
-    // UX IMPROVEMENTS JS
+    // UX JS: Red Handle + Resize logic
     document.getElementById('handle').onclick = e => {
         e.stopPropagation(); hidden = !hidden;
         p2.style.display = hidden ? 'none' : 'block';
         p1.style.flexBasis = hidden ? '100%' : '50%';
-        
         const hdl = e.currentTarget;
         const splitContainer = document.getElementById('split');
-
         if(hidden) {
             hdl.innerHTML = '<i class="fas fa-chevron-left"></i>';
             hdl.classList.remove('is-close');
