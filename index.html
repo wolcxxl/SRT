@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Reader V22 (Smart Sort)</title>
+    <title>Reader IOS</title>
     
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -76,9 +76,6 @@
         select, button { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; background: white; height: 40px; }
         button.active { background: var(--accent); color: white; border-color: var(--accent); }
         input[type=range] { width: 100%; height: 5px; border-radius: 5px; background: #d3d3d3; outline: none; }
-        
-        .mode-switch { font-weight: bold; font-size: 13px; }
-        .mode-switch.dual { background: #E91E63; color: white; border-color: #E91E63; }
     </style>
 </head>
 <body>
@@ -121,12 +118,9 @@
 
     <div id="settings">
         <div class="row">
-            <button onclick="toggleMode()" id="btn-mode" class="mode-switch">Режим: Google (Авто)</button>
-        </div>
-        <div class="row">
-            <select id="lang-from" onchange="repaginate()"><option value="auto">Авто</option><option value="en">EN</option><option value="de">DE</option><option value="fr">FR</option><option value="zh">CN</option></select>
+            <select id="lang-from"><option value="auto">Авто</option><option value="en">EN</option><option value="de">DE</option><option value="fr">FR</option><option value="zh">CN</option></select>
             <i class="fas fa-arrow-right" style="color:#ccc"></i>
-            <select id="lang-to" onchange="repaginate()"><option value="ru">RU</option><option value="en">EN</option><option value="uk">UK</option><option value="kk">KZ</option></select>
+            <select id="lang-to"><option value="ru">RU</option><option value="en">EN</option><option value="uk">UK</option><option value="kk">KZ</option></select>
         </div>
         <div class="row"><button onclick="setLayout('h')" id="btn-h">|| Верт</button><button onclick="setLayout('v')" id="btn-v">= Гориз</button></div>
         <div class="row">
@@ -161,7 +155,6 @@
 
     let db, pages=[], cur=0, trans=false, hidden=false, cache={};
     let isBold = false; let isSyncing = false;
-    let isDualMode = false;
     let rawParagraphs = [];
 
     // --- TTS WARMUP ---
@@ -169,16 +162,14 @@
     function warmUpTTS() {
         if(ttsWarmed) return;
         window.speechSynthesis.getVoices(); 
-        const u = new SpeechSynthesisUtterance('');
-        u.volume = 0;
-        window.speechSynthesis.speak(u);
+        const u = new SpeechSynthesisUtterance(''); u.volume = 0; window.speechSynthesis.speak(u);
         ttsWarmed = true;
     }
     document.body.addEventListener('touchstart', warmUpTTS, {once:true});
     document.body.addEventListener('click', warmUpTTS, {once:true});
 
     // --- DB ---
-    const req = indexedDB.open("ReaderV22", 1);
+    const req = indexedDB.open("ReaderV24", 1);
     req.onupgradeneeded = e => { db=e.target.result; db.createObjectStore("books",{keyPath:"id",autoIncrement:true}); };
     req.onsuccess = e => { db=e.target.result; loadLib(); restoreLibSettings(); };
 
@@ -271,9 +262,6 @@
         document.getElementById('lang-from').value = document.getElementById('lib-from').value;
         document.getElementById('lang-to').value = document.getElementById('lib-to').value;
 
-        isDualMode = false;
-        updateModeBtn();
-
         if (type === 'pdf') await parsePDF(book.content);
         else if (type === 'epub') await parseEPUB(book.content);
         else if (book.content.includes('<FictionBook') || book.content.includes('<?xml')) parseFB2(book.content);
@@ -285,144 +273,21 @@
         document.getElementById('settings').classList.remove('open');
     }
 
-    // --- SMART REPAGINATION ---
-    function detectScript(text) {
-        const cyrillic = (text.match(/[а-яА-ЯёЁ]/g) || []).length;
-        const latin = (text.match(/[a-zA-Z]/g) || []).length;
-        const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length;
-        
-        if (cjk > latin && cjk > cyrillic) return 'cjk';
-        if (cyrillic > latin) return 'cyrillic';
-        if (latin > cyrillic) return 'latin';
-        return 'neutral';
-    }
-
+    // --- PURE GOOGLE CHUNKING ---
     function repaginate() {
         pages = [];
-        
-        if (isDualMode) {
-            // Smart Language Sorting
-            const sLang = document.getElementById('lang-from').value;
-            const tLang = document.getElementById('lang-to').value;
-            
-            // Define scripts based on settings
-            let sScript = 'latin';
-            if (['ru','uk','kk'].includes(sLang)) sScript = 'cyrillic';
-            if (sLang === 'zh') sScript = 'cjk';
-            
-            let tScript = 'cyrillic';
-            if (['en','de','fr'].includes(tLang)) tScript = 'latin';
-            if (tLang === 'zh') tScript = 'cjk';
-
-            // Filter raw paragraphs
-            let leftBuffer = "";
-            let rightBuffer = "";
-            
-            // Если скрипты разные (например, EN vs RU), используем детектор
-            if (sScript !== tScript) {
-                rawParagraphs.forEach(p => {
-                    // Extract simple text from HTML for detection
-                    const tmp = document.createElement('div');
-                    tmp.innerHTML = p;
-                    const plain = tmp.innerText;
-                    
-                    const detected = detectScript(plain);
-                    
-                    if (detected === sScript) leftBuffer += p;
-                    else if (detected === tScript) rightBuffer += p;
-                    else {
-                        // Neutral (numbers, etc) -> try to guess or add to both/prev
-                        // Simplest: Add to Left as default
-                        leftBuffer += p; 
-                    }
-                });
-            } else {
-                // Fallback: Odd/Even for same-script languages
-                rawParagraphs.forEach((p, i) => {
-                    if (i % 2 === 0) leftBuffer += p;
-                    else rightBuffer += p;
-                });
-            }
-
-            // Create pages by chunking the two huge buffers
-            const leftChunks = chunkString(leftBuffer);
-            const rightChunks = chunkString(rightBuffer);
-            
-            const max = Math.max(leftChunks.length, rightChunks.length);
-            for(let i=0; i<max; i++) {
-                pages.push({
-                    left: leftChunks[i] || "",
-                    right: rightChunks[i] || "",
-                    type: 'dual'
-                });
-            }
-
-        } else {
-            // Google Mode
-            let buf = "";
-            for (let i = 0; i < rawParagraphs.length; i++) {
-                buf += rawParagraphs[i];
-                if (buf.length > 1000) {
-                    pages.push({ left: buf, right: null, type: 'google' });
-                    buf = "";
-                }
-            }
-            if (buf.length > 0) pages.push({ left: buf, right: null, type: 'google' });
-        }
-    }
-
-    function chunkString(html) {
-        const res = [];
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = html;
         let buf = "";
-        // Helper to reconstruct HTML
-        const walker = document.createTreeWalker(tempDiv, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
-        let node;
-        while(node = walker.nextNode()) {
-            let chunk = "";
-            if(node.nodeType === 3) {
-                const txt = node.textContent.trim();
-                if(txt) chunk = `<p>${txt}</p>`;
-            } else if (node.nodeType === 1 && node.tagName === 'IMG') {
-                chunk = node.outerHTML;
-            } else if (node.nodeType === 1 && ['H1','H2','H3'].includes(node.tagName)) {
-                chunk = node.outerHTML;
-            }
-            
-            if (chunk) {
-                buf += chunk;
-                if (buf.length > 1000) { res.push(buf); buf=""; }
+        for (let i = 0; i < rawParagraphs.length; i++) {
+            buf += rawParagraphs[i];
+            if (buf.length > 1000) {
+                pages.push({ left: buf, right: null });
+                buf = "";
             }
         }
-        if(buf) res.push(buf);
-        return res.length ? res : [html];
+        if (buf.length > 0) pages.push({ left: buf, right: null });
     }
 
-    function toggleMode() {
-        isDualMode = !isDualMode;
-        updateModeBtn();
-        repaginate();
-        cur = 0;
-        render();
-    }
-
-    function updateModeBtn() {
-        const btn = document.getElementById('btn-mode');
-        if (isDualMode) {
-            btn.innerText = "Режим: Встроенный (Автосорт)";
-            btn.classList.add('dual');
-            document.getElementById('btn-trans').style.opacity = '0.5';
-            document.getElementById('btn-trans').style.pointerEvents = 'none';
-        } else {
-            btn.innerText = "Режим: Google (Авто)";
-            btn.classList.remove('dual');
-            document.getElementById('btn-trans').style.opacity = '1';
-            document.getElementById('btn-trans').style.pointerEvents = 'auto';
-        }
-    }
-
-    // --- GOOGLE API ---
+    // --- GOOGLE API (Optimized) ---
     async function googleTranslate(html, from, to) {
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = html;
@@ -440,14 +305,13 @@
 
         try {
             const res = await fetch(proxyUrl);
-            if(!res.ok) throw new Error('Proxy status ' + res.status);
+            if(!res.ok) throw new Error('Status ' + res.status);
             const data = await res.json();
             const translatedFull = data[0].map(x => x[0]).join('');
             const translatedParts = translatedFull.split(separator.trim());
             for(let i=0; i < textNodes.length && i < translatedParts.length; i++) textNodes[i].textContent = translatedParts[i];
             return tempDiv.innerHTML;
         } catch(e) {
-            console.warn("Trans failed", e);
             return `<div style="color:#d32f2f">Ошибка сети.</div>` + html;
         }
     }
@@ -575,8 +439,6 @@
                 }
             } else if (node.nodeType === 1 && node.tagName === 'IMG') {
                 rawParagraphs.push(node.outerHTML);
-            } else if (node.nodeType === 1 && ['H1','H2','H3'].includes(node.tagName)) {
-                rawParagraphs.push(node.outerHTML);
             }
         }
     }
@@ -617,20 +479,16 @@
         document.getElementById('lbl').innerText = `${cur+1}/${pages.length}`;
         p1.scrollTop = 0; p2.scrollTop = 0;
         
-        if (isDualMode) {
-            p2.innerHTML = pageData.right;
-        } else {
-            if(trans) {
-                const k = cur+'_t_'+document.getElementById('lang-to').value;
-                if(cache[k]) p2.innerHTML = cache[k];
-                else { 
-                    p2.innerHTML = '<div style="padding:20px; color:#888; text-align:center"><i class="fas fa-spinner fa-spin"></i> Перевод (Google)...</div>';
-                    const from = document.getElementById('lang-from').value;
-                    const to = document.getElementById('lang-to').value;
-                    googleTranslate(pageData.left, from, to).then(t => { cache[k] = t; p2.innerHTML = t; });
-                }
-            } else p2.innerHTML = "";
-        }
+        if(trans) {
+            const k = cur+'_t_'+document.getElementById('lang-to').value;
+            if(cache[k]) p2.innerHTML = cache[k];
+            else { 
+                p2.innerHTML = '<div style="padding:20px; color:#888; text-align:center"><i class="fas fa-spinner fa-spin"></i> Перевод (Google)...</div>';
+                const from = document.getElementById('lang-from').value;
+                const to = document.getElementById('lang-to').value;
+                googleTranslate(pageData.left, from, to).then(t => { cache[k] = t; p2.innerHTML = t; });
+            }
+        } else p2.innerHTML = "";
     }
 
     function nav(d) { if(cur+d>=0 && cur+d<pages.length) { cur+=d; render(); } }
@@ -638,7 +496,6 @@
     function closeBook() { document.getElementById('read-view').style.display='none'; document.getElementById('lib-view').style.display='block'; closePopup(); }
     
     function toggleTrans() { 
-        if(isDualMode) return;
         trans = !trans; 
         const btn = document.getElementById('btn-trans');
         btn.innerText = trans ? "Перевод: ON" : "Перевод: OFF";
