@@ -3,126 +3,512 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="referrer" content="no-referrer">
-    <title>Smart Reader v67</title>
+    <title>Reader V16 (Edit & Delete)</title>
     
-    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#252526">
+    <meta name="theme-color" content="#f2f2f7">
+    <link rel="manifest" id="manifest-placeholder">
+    <link rel="apple-touch-icon" href="https://img.icons8.com/ios-filled/180/007AFF/open-book.png">
     
-    <link rel="stylesheet" href="css/style.css">
-    <link rel="manifest" href="manifest.json">
-    
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512' fill='%23007acc'><path d='M464 64H48C21.5 64 0 85.5 0 112v288c0 26.5 21.5 48 48 48h416c26.5 0 48-21.5 48-48V112c0-26.5-21.5-48-48-48z'/></svg>">
-    
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
-    <link rel="icon" type="image/png" href="icon.png">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
-    <link rel="apple-touch-icon" href="icon.png">
+    <style>
+        :root { --accent: #007AFF; --bg: #f2f2f7; --panel: #fff; --highlight: rgba(255, 235, 59, 0.4); }
+        body { margin:0; font-family: -apple-system, sans-serif; background: var(--bg); height: 100vh; display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: none; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        /* LIBRARY */
+        #lib-view { padding: 40px 20px 80px; height: 100%; overflow-y: auto; }
+        
+        .lib-settings {
+            background: var(--panel); padding: 15px; border-radius: 12px; margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 10px;
+        }
+        .lib-settings-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .lib-label { font-size: 13px; color: #666; font-weight: 500; }
+        .lib-select { padding: 8px; border-radius: 8px; border: 1px solid #ddd; background: #f9f9f9; flex: 1; font-weight: bold; }
+
+        .upload-container { position: relative; width: 100%; height: 55px; margin-bottom: 20px; }
+        .upload-visual {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--accent); color: white; border-radius: 12px;
+            display: flex; justify-content: center; align-items: center;
+            font-weight: bold; font-size: 16px; box-shadow: 0 4px 10px rgba(0,122,255,0.3); z-index: 1;
+        }
+        #file-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; z-index: 999; cursor: pointer; }
+
+        .book-card {
+            background: var(--panel); padding: 15px; margin-bottom: 12px; border-radius: 12px;
+            display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ddd;
+            transition: background 0.1s; cursor: pointer; user-select: none;
+        }
+        .book-card:active { background: #e5e5e5; transform: scale(0.98); }
+        
+        .book-info { flex: 1; display: flex; align-items: center; gap: 10px; overflow: hidden; }
+        .book-type { font-size: 10px; padding: 3px 6px; border-radius: 4px; background: #eee; color: #555; font-weight: bold; flex-shrink: 0;}
+        .book-name { font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 16px; }
+
+        .book-actions { display: flex; gap: 15px; margin-left: 10px; }
+        .action-btn { color: #888; padding: 5px; font-size: 16px; transition: color 0.2s; }
+        .action-btn.edit:hover { color: var(--accent); }
+        .action-btn.del:hover { color: #ff3b30; }
+
+        #loader { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(255,255,255,0.9); z-index: 2000; justify-content: center; align-items: center; flex-direction: column; text-align: center; padding: 20px; }
+        .spinner { width: 40px; height: 40px; border: 4px solid #ddd; border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px;}
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #loader-text { color: #555; font-weight: 500; }
+
+        /* READER */
+        #read-view { display: none; flex-direction: column; height: 100%; background: #fff; }
+        .top-bar { height: 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; background: #f8f8f8; border-bottom: 1px solid #ddd; padding-top: env(safe-area-inset-top); }
+        
+        .split { flex: 1; display: flex; overflow: hidden; position: relative; touch-action: none; }
+        .split.vertical { flex-direction: column; }
+        
+        .page { flex: 1; padding: 20px; overflow-y: auto; font-size: 17px; line-height: 1.6; -webkit-overflow-scrolling: touch; overscroll-behavior: none; }
+        .page img { max-width: 100%; border-radius: 8px; margin: 10px auto; display: block; }
+        
+        .sync-active { background-color: var(--highlight); border-radius: 4px; transition: background 0.2s; cursor: pointer; }
+        .page p { margin-bottom: 10px; cursor: pointer; }
+
+        .resizer { background: #ddd; z-index: 100; display: flex; justify-content: center; align-items: center; }
+        .split:not(.vertical) .resizer { width: 16px; margin: 0 -8px; cursor: col-resize; }
+        .split.vertical .resizer { height: 16px; margin: -8px 0; cursor: row-resize; }
+        .handle { width: 24px; height: 24px; background: var(--accent); border-radius: 50%; color: white; display: flex; justify-content: center; align-items: center; font-size: 10px; border: 2px solid #fff; pointer-events: auto; }
+
+        .bot-bar { height: 70px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: #f8f8f8; border-top: 1px solid #ddd; padding-bottom: env(safe-area-inset-bottom); }
+        .nav-btn { font-size: 24px; color: var(--accent); background: none; border: none; padding: 10px; }
+
+        #settings {
+            position: absolute; top: 80px; left: 0; width: 100%; background: white; padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15); transform: translateY(-200%); transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 999; border-bottom: 1px solid #eee;
+        }
+        #settings.open { transform: translateY(0); }
+        .row { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; }
+        .label { font-size: 12px; color: #888; width: 100%; margin-bottom: 5px; }
+        select, button { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; background: white; height: 40px; }
+        button.active { background: var(--accent); color: white; border-color: var(--accent); }
+        input[type=range] { width: 100%; height: 5px; border-radius: 5px; background: #d3d3d3; outline: none; }
+    </style>
 </head>
 <body>
 
-<div id="progressBar"></div>
+<div id="loader"><div class="spinner"></div><div id="loader-text">Обработка...</div></div>
 
-<div id="library-view" class="active">
-    <div class="lib-header">
-        <span class="lib-title">Библиотека</span>
-        <label class="add-book-btn"><span>+ Книга</span><input type="file" id="libFileInput" style="display:none"></label>
-    </div>
-    <div class="lib-grid" id="bookGrid"></div>
-</div>
-
-<div id="reader-view">
-    <div id="menu-bar">
-        <button id="menu-toggle" title="Настройки">☰</button>
-        
-        <div class="top-nav-group">
-            <button id="prevBtn" class="icon-btn" title="Пред. глава">←</button>
-            <select id="chapterSelect"></select>
-            <button id="nextBtn" class="icon-btn" title="След. глава">→</button>
+<div id="lib-view">
+    <h1 style="margin-bottom: 20px;">Мои Книги</h1>
+    
+    <div class="lib-settings">
+        <div class="lib-settings-row">
+            <span class="lib-label">Оригинал:</span>
+            <select id="lib-from" class="lib-select" onchange="saveLibSettings()">
+                <option value="en">Английский</option>
+                <option value="de">Немецкий</option>
+                <option value="fr">Французский</option>
+                <option value="zh">Китайский</option>
+            </select>
+        </div>
+        <div class="lib-settings-row">
+            <span class="lib-label">Перевод на:</span>
+            <select id="lib-to" class="lib-select" onchange="saveLibSettings()">
+                <option value="ru" selected>Русский</option>
+                <option value="en">Английский</option>
+                <option value="uk">Украинский</option>
+                <option value="kk">Казахский</option>
+            </select>
         </div>
     </div>
 
-    <div id="settings-panel">
-        <div style="padding: 15px;">
-            
-            <div class="menu-row">
-                <button id="backToLib" class="icon-btn" style="width:auto; padding:0 15px; font-size: 14px;">⬅ В библиотеку</button>
-                <div style="display:flex; gap:10px; align-items:center;">
-                    <span>🔊</span>
-                    <select id="voiceSource" style="width: 120px; background:#333; color:fff; border:1px solid #555; height:30px; border-radius:4px">
-                        <option value="google">Google</option>
-                        <option value="edge">Edge</option>
-                    </select>
-                </div>
-            </div>
-            
-            <div id="voiceSettings" class="voice-settings" style="display:none">
-                <div class="voice-row"><span>🇷🇺 RU:</span><select id="voiceRu" class="voice-select"><option value="f">Женский</option><option value="m">Мужской</option></select></div>
-                <div class="voice-row"><span>🇺🇸 EN:</span><select id="voiceEn" class="voice-select"><option value="f">Female</option><option value="m">Male</option></select></div>
-                <div class="voice-row"><span>🇩🇪 DE:</span><select id="voiceDe" class="voice-select"><option value="f">Weiblich</option><option value="m">Männlich</option></select></div>
-            </div>
-            
-            <div class="menu-row">
-                <span>Скорость: <span id="rateVal" style="font-weight:bold; color:var(--accent)">1.0</span></span>
-                <input type="range" id="rateRange" min="0.5" max="2.0" step="0.1" value="1.0" style="flex:1; margin-left:10px">
-            </div>
+    <div class="upload-container">
+        <div class="upload-visual"><i class="fas fa-plus"></i>&nbsp; Добавить (FB2, EPUB, PDF, TXT)</div>
+        <input type="file" id="file-input">
+    </div>
+    <div id="book-list"></div>
+</div>
 
-            <div class="menu-row" style="border-top:1px solid #333; padding-top:10px; margin-top:5px">
-                <div class="group">
-                    <select id="fontFamily" style="width:70px"><option value="ui">Sans</option><option value="serif">Serif</option><option value="mono">Mono</option></select>
-                    <select id="fontSize" style="width:50px"><option value="14px">14</option><option value="16px">16</option><option value="18px" selected>18</option><option value="20px">20</option><option value="24px">24</option></select>
-                    <button id="boldToggle" class="icon-btn" style="font-weight:bold; width:30px">B</button>
-                    <button id="zoneToggle" class="icon-btn" title="Вкл/Выкл зоны нажатия">👆</button> 
-                    <button id="layoutBtn" class="icon-btn" title="Вид">⬍</button>
-                </div>
+<div id="read-view">
+    <div class="top-bar">
+        <button onclick="toggleMenu()" style="flex:0 auto; border:none; color:var(--accent); font-weight:bold; background:none"><i class="fas fa-cog"></i> Меню</button>
+        <button onclick="toggleTrans()" id="btn-trans" style="flex:0 auto; border:1px solid var(--accent); color:var(--accent); padding:5px 15px; border-radius:15px; font-size:12px">Перевод: OFF</button>
+    </div>
+
+    <div id="settings">
+        <div class="row">
+            <select id="lang-from"><option value="en">EN</option><option value="de">DE</option><option value="fr">FR</option><option value="zh">CN</option></select>
+            <i class="fas fa-arrow-right" style="color:#ccc"></i>
+            <select id="lang-to"><option value="ru">RU</option><option value="en">EN</option><option value="uk">UK</option><option value="kk">KK</option></select>
+        </div>
+        <div class="row"><button onclick="setLayout('h')" id="btn-h">|| Верт</button><button onclick="setLayout('v')" id="btn-v">= Гориз</button></div>
+        <div class="row">
+            <select id="font-family" onchange="updateStyle()"><option value="-apple-system, sans-serif">System</option><option value="'Georgia', serif">Serif</option><option value="'Courier New', monospace">Mono</option></select>
+            <button onclick="toggleBold()" id="btn-bold" style="flex:0 0 50px; font-weight:bold">B</button>
+        </div>
+        <div style="margin-bottom: 15px;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:5px;"><span class="label">Размер</span><span class="label" style="text-align:right" id="size-val">17px</span></div>
+            <input type="range" id="font-size" min="12" max="32" value="17" oninput="updateStyle()">
+        </div>
+        <div class="row"><button onclick="closeBook()" style="background:#ff3b30; color:white; border:none">Закрыть книгу</button></div>
+    </div>
+
+    <div class="split" id="split">
+        <div class="page" id="p1"></div>
+        <div class="resizer" id="resizer"><div class="handle" id="handle"><i class="fas fa-times"></i></div></div>
+        <div class="page" id="p2" style="background:#f9f9f9; color:#555"></div>
+    </div>
+
+    <div class="bot-bar">
+        <button class="nav-btn" onclick="nav(-1)"><i class="fas fa-chevron-left"></i></button>
+        <span id="lbl" style="font-weight:600; color:#555">0/0</span>
+        <button class="nav-btn" onclick="nav(1)"><i class="fas fa-chevron-right"></i></button>
+    </div>
+</div>
+
+<script>
+    const m = { "name":"Reader", "display":"standalone", "background_color":"#f2f2f7", "theme_color":"#007AFF", "icons":[{ "src":"https://img.icons8.com/ios-filled/192/007AFF/open-book.png", "sizes":"192x192", "type":"image/png" }] };
+    document.getElementById('manifest-placeholder').setAttribute('href', URL.createObjectURL(new Blob([JSON.stringify(m)], {type: 'application/json'})));
+
+    let db, pages=[], cur=0, trans=false, hidden=false, cache={};
+    let isBold = false; let isSyncing = false;
+
+    const req = indexedDB.open("ReaderV16", 1);
+    req.onupgradeneeded = e => { db=e.target.result; db.createObjectStore("books",{keyPath:"id",autoIncrement:true}); };
+    req.onsuccess = e => { db=e.target.result; loadLib(); restoreLibSettings(); };
+
+    function saveLibSettings() {
+        localStorage.setItem('lib-from', document.getElementById('lib-from').value);
+        localStorage.setItem('lib-to', document.getElementById('lib-to').value);
+    }
+    function restoreLibSettings() {
+        if(localStorage.getItem('lib-from')) document.getElementById('lib-from').value = localStorage.getItem('lib-from');
+        if(localStorage.getItem('lib-to')) document.getElementById('lib-to').value = localStorage.getItem('lib-to');
+    }
+
+    document.getElementById('file-input').addEventListener('change', async function(e) {
+        const f = e.target.files[0]; if(!f) return;
+        showLoader("Анализ...");
+        const type = f.name.split('.').pop().toLowerCase();
+        let content = null;
+        try {
+            if(type === 'epub' || type === 'pdf') {
+                content = await f.arrayBuffer();
+            } else {
+                content = await new Promise((resolve) => {
+                    const r = new FileReader();
+                    r.onload = ev => resolve(ev.target.result);
+                    r.readAsText(f);
+                });
+            }
+            const tx = db.transaction("books", "readwrite");
+            tx.objectStore("books").add({ name: f.name, type: type, content: content });
+            tx.oncomplete = () => { hideLoader(); loadLib(); this.value = ''; };
+        } catch(err) { hideLoader(); alert("Ошибка: " + err.message); }
+    });
+
+    function showLoader(t) { document.getElementById('loader-text').innerText = t; document.getElementById('loader').style.display = 'flex'; }
+    function hideLoader() { document.getElementById('loader').style.display = 'none'; }
+
+    function loadLib() {
+        const l = document.getElementById('book-list'); l.innerHTML = '';
+        db.transaction("books").objectStore("books").openCursor().onsuccess = e => {
+            const c = e.target.result;
+            if(c) {
+                const id=c.value.id; const name=c.value.name; const type=(c.value.type || 'TXT').toUpperCase();
+                const d = document.createElement('div'); d.className = 'book-card';
                 
-                <div class="group">
-                    <select id="srcLang" class="main-select"><option value="auto">Auto</option><option value="en">EN</option><option value="de">DE</option></select>
-                    <span style="color:#666">→</span>
-                    <select id="tgtLang" class="main-select"><option value="ru">RU</option><option value="en">EN</option></select>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div id="reader-wrapper" style="position:relative; flex:1; display:flex; overflow:hidden;">
-        <div id="nav-zone-left" class="nav-zone left"></div>
-        <div id="nav-zone-right" class="nav-zone right"></div>
-
-        <div id="container">
-            <div id="panel1" class="panel"><div class="panel-head">Оригинал</div><div id="origPanel" class="content-area"></div></div>
-            <div id="resizer" class="resizer"></div>
-            <div id="panel2" class="panel">
-                <div class="panel-head">
-                    <span>Перевод</span>
-                    <div class="trans-controls">
-                        <button id="btnStart" class="btn-tiny btn-start" title="Перевести">▶</button>
-                        <button id="btnRead" class="btn-tiny btn-read" title="Читать">🔊</button>
-                        <button id="btnStop" class="btn-tiny btn-stop" disabled>■ Стоп</button>
+                // HTML структуры карточки с кнопками
+                d.innerHTML = `
+                    <div class="book-info">
+                        <span class="book-type">${type}</span>
+                        <div class="book-name">${name}</div>
                     </div>
-                </div>
-                <div id="transPanel" class="content-area"></div>
-            </div>
-        </div>
-    </div>
-</div>
+                    <div class="book-actions">
+                        <i class="fas fa-pen action-btn edit" onclick="renameBook(event, ${id}, '${name.replace(/'/g, "\\'")}')"></i>
+                        <i class="fas fa-trash action-btn del" onclick="deleteBook(event, ${id})"></i>
+                    </div>
+                `;
+                
+                // Клик по самой карточке открывает книгу
+                d.onclick = (e) => {
+                    // Если клик был не по кнопкам
+                    if(!e.target.closest('.action-btn')) loadAndOpen(id);
+                };
 
-<button id="global-stop-btn">🔇</button>
-<div id="tooltip"></div>
-<div id="selection-bar"><button class="action-btn" id="translateSelBtn">🌎 Перевести / 🔊</button></div>
-<div id="statusLine">Ready</div>
-<div id="loader"><div>Загрузка...</div></div>
+                l.appendChild(d);
+                c.continue();
+            }
+        };
+    }
+    
+    // --- RENAME & DELETE ---
+    function renameBook(e, id, oldName) {
+        e.stopPropagation(); // Остановить открытие книги
+        const newName = prompt("Новое название:", oldName);
+        if(newName && newName.trim() !== "") {
+            const tx = db.transaction("books", "readwrite");
+            const store = tx.objectStore("books");
+            const req = store.get(id);
+            req.onsuccess = () => {
+                const data = req.result;
+                data.name = newName;
+                store.put(data);
+                loadLib();
+            };
+        }
+    }
 
-<div id="image-modal">
-    <img id="modal-img-element" src="" alt="Full view">
-    <button class="modal-close-btn" id="modal-close">Закрыть</button>
-</div>
+    function deleteBook(e, id) {
+        e.stopPropagation(); // Остановить открытие книги
+        if(confirm("Удалить эту книгу?")) {
+            const tx = db.transaction("books", "readwrite");
+            tx.objectStore("books").delete(id);
+            tx.oncomplete = loadLib;
+        }
+    }
 
-<script type="module" src="js/app.js"></script>
+    async function loadAndOpen(id) {
+        showLoader("Открываем...");
+        const tx = db.transaction("books", "readonly");
+        const req = tx.objectStore("books").get(id);
+        req.onsuccess = async e => {
+            const book = e.target.result;
+            if(book) {
+                try {
+                    await parseAndRender(book);
+                    document.getElementById('lib-view').style.display='none';
+                    document.getElementById('read-view').style.display='flex';
+                    hideLoader();
+                } catch(err) { hideLoader(); alert("Ошибка: " + err.message); }
+            }
+        };
+    }
 
+    async function parseAndRender(book) {
+        pages = [];
+        const type = book.type;
+        document.getElementById('lang-from').value = document.getElementById('lib-from').value;
+        document.getElementById('lang-to').value = document.getElementById('lib-to').value;
+
+        if (type === 'pdf') await parsePDF(book.content);
+        else if (type === 'epub') await parseEPUB(book.content);
+        else if (book.content.includes('<FictionBook') || book.content.includes('<?xml')) parseFB2(book.content);
+        else parseTXT(book.content);
+
+        if(pages.length === 0) pages.push("<p>Пусто</p>");
+        cur=0; render();
+        document.getElementById('settings').classList.remove('open');
+    }
+
+    async function parsePDF(buffer) {
+        showLoader("Парсинг PDF...");
+        const pdf = await pdfjsLib.getDocument({data: buffer}).promise;
+        let fullText = "";
+        for (let i = 1; i <= pdf.numPages; i++) {
+            showLoader(`PDF: ${i}/${pdf.numPages}`);
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map(item => item.str).join(' ');
+            if(pageText.trim().length > 0) {
+                 const paragraphs = pageText.replace(/\. /g, '.</p><p>');
+                 fullText += `<p>${paragraphs}</p><hr style="border:0; border-bottom:1px dashed #ccc; margin:20px 0;">`;
+            }
+        }
+        chunkContent(fullText);
+    }
+
+    async function parseEPUB(buffer) {
+        showLoader("Распаковка EPUB...");
+        const zip = new JSZip();
+        await zip.loadAsync(buffer);
+        const container = await zip.file("META-INF/container.xml").async("text");
+        const parser = new DOMParser();
+        const rootPath = parser.parseFromString(container, "text/xml").getElementsByTagName("rootfile")[0].getAttribute("full-path");
+        const rootDir = rootPath.substring(0, rootPath.lastIndexOf('/') + 1);
+        
+        const opfContent = await zip.file(rootPath).async("text");
+        const opfDoc = parser.parseFromString(opfContent, "text/xml");
+        const manifest = opfDoc.getElementsByTagName("manifest")[0];
+        const spine = opfDoc.getElementsByTagName("spine")[0];
+        
+        const resources = {};
+        const manifestItems = manifest.getElementsByTagName("item");
+        for (let i = 0; i < manifestItems.length; i++) {
+            const item = manifestItems[i];
+            const href = item.getAttribute("href");
+            const mediaType = item.getAttribute("media-type");
+            if (mediaType.startsWith("image/")) {
+                const imgFile = zip.file(rootDir + href);
+                if (imgFile) {
+                    const imgBlob = await imgFile.async("blob");
+                    const url = URL.createObjectURL(imgBlob);
+                    resources[href] = url; resources[rootDir + href] = url;
+                }
+            }
+        }
+
+        let fullHtml = "";
+        const spineItems = spine.getElementsByTagName("itemref");
+        for (let i = 0; i < spineItems.length; i++) {
+            showLoader(`EPUB: Глава ${i+1}`);
+            const idref = spineItems[i].getAttribute("idref");
+            let href = "";
+            for(let j=0; j<manifestItems.length; j++) { if(manifestItems[j].getAttribute("id")===idref) { href=manifestItems[j].getAttribute("href"); break; } }
+            if(href) {
+                let chContent = await zip.file(rootDir + href).async("text");
+                for (const [key, blobUrl] of Object.entries(resources)) {
+                    const filename = key.split('/').pop();
+                    const regex = new RegExp(`src=["'].*?${filename}["']`, 'g');
+                    chContent = chContent.replace(regex, `src="${blobUrl}"`);
+                }
+                const chDoc = parser.parseFromString(chContent, "text/html") || parser.parseFromString(chContent, "application/xhtml+xml");
+                if(chDoc.body) fullHtml += chDoc.body.innerHTML;
+            }
+        }
+        chunkContent(fullHtml);
+    }
+
+    function chunkContent(html) {
+        html = html.replace(/\s\s+/g, ' ');
+        const tempDiv = document.createElement('div'); tempDiv.innerHTML = html;
+        let buf = "";
+        const children = tempDiv.childNodes;
+        for (let i = 0; i < children.length; i++) {
+            const node = children[i];
+            if (node.nodeType === 3) { if(node.textContent.trim()) buf += `<p>${node.textContent}</p>`; }
+            else if (node.nodeType === 1) {
+                 if (['IMG','P','DIV','H1','H2','H3','H4'].includes(node.tagName)) buf += node.outerHTML;
+                 else buf += `<p>${node.innerText}</p>`;
+            }
+            if (buf.length > 1500) { pages.push(buf); buf = ""; }
+        }
+        if(buf) pages.push(buf);
+    }
+
+    function parseFB2(xml) {
+        xml = xml.replace(/xmlns.*?=".*?"/g, ''); 
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(xml, "text/xml");
+        const bins = {};
+        const bNodes = doc.getElementsByTagName('binary');
+        for(let i=0; i<bNodes.length; i++) bins[bNodes[i].getAttribute('id')] = `data:${bNodes[i].getAttribute('content-type')};base64,${bNodes[i].textContent}`;
+        const body = doc.getElementsByTagName('body')[0];
+        if(!body) { parseTXT(xml); return; }
+        const all = body.getElementsByTagName('*');
+        let buf = "";
+        for(let i=0; i<all.length; i++) {
+            const el = all[i];
+            const tag = el.tagName.toLowerCase();
+            if(el.parentNode.tagName.toLowerCase() === 'p' || el.parentNode.tagName.toLowerCase() === 'title') continue;
+            if(tag === 'title') buf += `<h3>${el.textContent}</h3>`;
+            else if(tag === 'p') buf += `<p>${el.textContent}</p>`;
+            else if(tag === 'image') {
+                let h = el.getAttribute('l:href') || el.getAttribute('xlink:href') || el.getAttribute('href');
+                if(h && h.startsWith('#')) h = h.substring(1);
+                if(bins[h]) buf += `<img src="${bins[h]}">`;
+            }
+            if(buf.length > 1500) { pages.push(buf); buf=""; }
+        }
+        if(buf) pages.push(buf);
+    }
+
+    function parseTXT(t) {
+        let buf = "";
+        t.split('\n').forEach(l => { if(l.trim()) buf += `<p>${l}</p>`; if(buf.length > 1500) { pages.push(buf); buf=""; } });
+        if(buf) pages.push(buf);
+    }
+
+    const p1 = document.getElementById('p1'); const p2 = document.getElementById('p2');
+    function attachSyncEvents() {
+        const paras1 = document.querySelectorAll('#p1 p'); const paras2 = document.querySelectorAll('#p2 p');
+        function highlight(index, targetEl) {
+            document.querySelectorAll('.sync-active').forEach(e => e.classList.remove('sync-active'));
+            if(paras1[index]) paras1[index].classList.add('sync-active');
+            if(paras2[index]) { paras2[index].classList.add('sync-active'); if(targetEl !== paras2[index]) paras2[index].scrollIntoView({ behavior: "smooth", block: "center" }); }
+            if(targetEl !== paras1[index] && paras1[index]) paras1[index].scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+        paras1.forEach((p, i) => p.onclick = () => highlight(i, p));
+        paras2.forEach((p, i) => p.onclick = () => highlight(i, p));
+    }
+    function syncScroll(source, target) {
+        if(isSyncing) return; isSyncing = true;
+        const p = source.scrollTop / (source.scrollHeight - source.clientHeight);
+        target.scrollTop = p * (target.scrollHeight - target.clientHeight);
+        setTimeout(() => isSyncing = false, 50);
+    }
+    p1.addEventListener('scroll', () => syncScroll(p1, p2)); p2.addEventListener('scroll', () => syncScroll(p2, p1));
+
+    function render() {
+        const h = pages[cur] || "";
+        p1.innerHTML = h;
+        document.getElementById('lbl').innerText = `${cur+1}/${pages.length}`;
+        p1.scrollTop = 0; p2.scrollTop = 0;
+        if(trans) {
+            const k = cur+'_t';
+            if(cache[k]) { p2.innerHTML = cache[k]; attachSyncEvents(); }
+            else { p2.innerHTML = "<i>...</i>"; setTimeout(() => { cache[k] = h.replace(/<p>/g, "<p style='color:#007AFF'>"); p2.innerHTML = cache[k]; attachSyncEvents(); }, 200); }
+        } else p2.innerHTML = "";
+    }
+    function nav(d) { if(cur+d>=0 && cur+d<pages.length) { cur+=d; render(); } }
+    function toggleMenu() { document.getElementById('settings').classList.toggle('open'); }
+    function closeBook() { document.getElementById('read-view').style.display='none'; document.getElementById('lib-view').style.display='block'; }
+    function toggleTrans() { 
+        trans = !trans; 
+        const btn = document.getElementById('btn-trans');
+        btn.innerText = trans ? "Перевод: ON" : "Перевод: OFF";
+        btn.style.background = trans ? 'var(--accent)' : 'none';
+        btn.style.color = trans ? 'white' : 'var(--accent)';
+        render(); 
+    }
+    function setLayout(m) {
+        const s = document.getElementById('split');
+        if(m==='v') s.classList.add('vertical'); else s.classList.remove('vertical');
+        p1.style.flexBasis = '50%'; p2.style.flexBasis = '50%';
+    }
+    function updateStyle() {
+        const size = document.getElementById('font-size').value;
+        const family = document.getElementById('font-family').value;
+        const weight = isBold ? 'bold' : 'normal';
+        document.getElementById('size-val').innerText = size + 'px';
+        [p1, p2].forEach(el => { el.style.fontSize = size + 'px'; el.style.fontFamily = family; el.style.fontWeight = weight; });
+    }
+    function toggleBold() {
+        isBold = !isBold;
+        const btn = document.getElementById('btn-bold');
+        if(isBold) { btn.style.background = "var(--accent)"; btn.style.color="white"; } else { btn.style.background = "white"; btn.style.color="black"; }
+        updateStyle();
+    }
+
+    let touchStartX = 0; let touchStartY = 0;
+    const splitEl = document.getElementById('split');
+    splitEl.addEventListener('touchstart', e => { touchStartX = e.changedTouches[0].clientX; touchStartY = e.changedTouches[0].clientY; }, {passive: true});
+    splitEl.addEventListener('touchend', e => {
+        if(isResizing) return;
+        const diffX = touchStartX - e.changedTouches[0].clientX;
+        const diffY = touchStartY - e.changedTouches[0].clientY;
+        if(Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY)) { if(diffX > 0) nav(1); else nav(-1); }
+    });
+
+    const rs = document.getElementById('resizer'); const sc = document.getElementById('split'); let isResizing = false;
+    rs.addEventListener('pointerdown', e => { if(e.target.closest('#handle')) return; isResizing=true; rs.setPointerCapture(e.pointerId); rs.addEventListener('pointermove', onMove); rs.addEventListener('pointerup', onUp); });
+    function onMove(e) {
+        if(!isResizing) return;
+        const r = sc.getBoundingClientRect();
+        const isV = sc.classList.contains('vertical');
+        let pct = isV ? (e.clientY - r.top)/r.height : (e.clientX - r.left)/r.width;
+        pct = Math.max(0.1, Math.min(0.9, pct))*100;
+        p1.style.flexBasis = pct+'%'; p2.style.flexBasis = (100-pct)+'%';
+    }
+    function onUp(e) { isResizing=false; rs.releasePointerCapture(e.pointerId); }
+    document.getElementById('handle').onclick = e => {
+        e.stopPropagation(); hidden = !hidden;
+        p2.style.display = hidden ? 'none' : 'block';
+        p1.style.flexBasis = hidden ? '100%' : '50%';
+        e.currentTarget.innerHTML = hidden ? '<i class="fas fa-chevron-left"></i>' : '<i class="fas fa-times"></i>';
+        if(!hidden) syncScroll(p1, p2);
+    };
+</script>
 </body>
 </html>
