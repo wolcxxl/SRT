@@ -3,11 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Reader Ultimate</title>
+    <title>Reader V12 (Sync)</title>
     
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#f2f2f7">
     <link rel="manifest" id="manifest-placeholder">
+    <link rel="apple-touch-icon" href="https://img.icons8.com/ios-filled/180/007AFF/open-book.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
     <style>
@@ -15,16 +17,25 @@
         body { margin:0; font-family: -apple-system, sans-serif; background: var(--bg); height: 100vh; display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: none; }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
-        /* --- LIBRARY --- */
+        /* LIBRARY */
         #lib-view { padding: 40px 20px 80px; height: 100%; overflow-y: auto; }
         
-        /* Кнопка iOS Fix */
-        .upload-container { position: relative; width: 100%; height: 60px; margin-bottom: 30px; }
+        /* Library Settings Row */
+        .lib-settings {
+            background: var(--panel); padding: 15px; border-radius: 12px; margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 10px;
+        }
+        .lib-settings-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .lib-label { font-size: 13px; color: #666; font-weight: 500; }
+        .lib-select { padding: 8px; border-radius: 8px; border: 1px solid #ddd; background: #f9f9f9; flex: 1; font-weight: bold; }
+
+        /* Upload Button */
+        .upload-container { position: relative; width: 100%; height: 55px; margin-bottom: 20px; }
         .upload-visual {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: var(--accent); color: white; border-radius: 14px;
+            background: var(--accent); color: white; border-radius: 12px;
             display: flex; justify-content: center; align-items: center;
-            font-weight: bold; font-size: 17px; box-shadow: 0 4px 10px rgba(0,122,255,0.3); z-index: 1;
+            font-weight: bold; font-size: 16px; box-shadow: 0 4px 10px rgba(0,122,255,0.3); z-index: 1;
         }
         #file-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; z-index: 999; cursor: pointer; }
 
@@ -40,9 +51,8 @@
         .spinner { width: 40px; height: 40px; border: 4px solid #ddd; border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        /* --- READER --- */
+        /* READER */
         #read-view { display: none; flex-direction: column; height: 100%; background: #fff; }
-        
         .top-bar { height: 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; background: #f8f8f8; border-bottom: 1px solid #ddd; padding-top: env(safe-area-inset-top); }
         
         .split { flex: 1; display: flex; overflow: hidden; position: relative; touch-action: none; }
@@ -58,25 +68,16 @@
         .bot-bar { height: 70px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: #f8f8f8; border-top: 1px solid #ddd; padding-bottom: env(safe-area-inset-bottom); }
         .nav-btn { font-size: 24px; color: var(--accent); background: none; border: none; padding: 10px; }
 
-        /* --- FULL MENU --- */
+        /* MENU */
         #settings {
-            position: absolute; top: 80px; left: 0; width: 100%;
-            background: white; padding: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
-            transform: translateY(-200%); transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            z-index: 999; border-bottom: 1px solid #eee;
+            position: absolute; top: 80px; left: 0; width: 100%; background: white; padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15); transform: translateY(-200%); transition: 0.3s; z-index: 999; border-bottom: 1px solid #eee;
         }
         #settings.open { transform: translateY(0); }
-        
         .row { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; }
         .label { font-size: 12px; color: #888; width: 100%; margin-bottom: 5px; }
-        
         select, button { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; background: white; height: 40px; }
-        button.active { background: var(--accent); color: white; border-color: var(--accent); }
-        
         input[type=range] { width: 100%; height: 5px; border-radius: 5px; background: #d3d3d3; outline: none; }
-        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); cursor: pointer; }
-
     </style>
 </head>
 <body>
@@ -85,6 +86,28 @@
 
 <div id="lib-view">
     <h1 style="margin-bottom: 20px;">Мои Книги</h1>
+    
+    <div class="lib-settings">
+        <div class="lib-settings-row">
+            <span class="lib-label">Оригинал:</span>
+            <select id="lib-from" class="lib-select" onchange="saveLibSettings()">
+                <option value="en">Английский</option>
+                <option value="de">Немецкий</option>
+                <option value="fr">Французский</option>
+                <option value="zh">Китайский</option>
+            </select>
+        </div>
+        <div class="lib-settings-row">
+            <span class="lib-label">Перевод на:</span>
+            <select id="lib-to" class="lib-select" onchange="saveLibSettings()">
+                <option value="ru" selected>Русский</option>
+                <option value="en">Английский</option>
+                <option value="uk">Украинский</option>
+                <option value="kk">Казахский</option>
+            </select>
+        </div>
+    </div>
+
     <div class="upload-container">
         <div class="upload-visual"><i class="fas fa-plus"></i>&nbsp; Добавить книгу</div>
         <input type="file" id="file-input">
@@ -102,34 +125,18 @@
         <div class="row">
             <select id="lang-from"><option value="en">EN</option><option value="de">DE</option><option value="fr">FR</option><option value="zh">CN</option></select>
             <i class="fas fa-arrow-right" style="color:#ccc"></i>
-            <select id="lang-to"><option value="ru">RU</option><option value="en">EN</option></select>
+            <select id="lang-to"><option value="ru">RU</option><option value="en">EN</option><option value="uk">UK</option><option value="kk">KK</option></select>
         </div>
-        
+        <div class="row"><button onclick="setLayout('h')">|| Верт</button><button onclick="setLayout('v')">= Гориз</button></div>
         <div class="row">
-            <button onclick="setLayout('h')" id="btn-h">|| Верт</button>
-            <button onclick="setLayout('v')" id="btn-v">= Гориз</button>
+            <select id="font-family" onchange="updateStyle()"><option value="-apple-system, sans-serif">System</option><option value="'Georgia', serif">Serif</option><option value="'Courier New', monospace">Mono</option></select>
+            <button onclick="toggleBold()" id="btn-bold" style="flex:0 0 50px; font-weight:bold">B</button>
         </div>
-
-        <div class="row">
-            <select id="font-family" onchange="updateStyle()">
-                <option value="-apple-system, sans-serif">System</option>
-                <option value="'Georgia', serif">Serif</option>
-                <option value="'Courier New', monospace">Mono</option>
-            </select>
-            <button onclick="toggleBold()" id="btn-bold" style="flex: 0 0 50px; font-weight:bold">B</button>
-        </div>
-
         <div style="margin-bottom: 15px;">
-            <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-                <span class="label">Размер шрифта</span>
-                <span class="label" style="text-align:right" id="size-val">17px</span>
-            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:5px;"><span class="label">Размер</span><span class="label" style="text-align:right" id="size-val">17px</span></div>
             <input type="range" id="font-size" min="12" max="32" value="17" oninput="updateStyle()">
         </div>
-
-        <div class="row">
-            <button onclick="closeBook()" style="background:#ff3b30; color:white; border:none">Закрыть книгу</button>
-        </div>
+        <div class="row"><button onclick="closeBook()" style="background:#ff3b30; color:white; border:none">Закрыть книгу</button></div>
     </div>
 
     <div class="split" id="split">
@@ -152,11 +159,21 @@
 
     let db, pages=[], cur=0, trans=false, hidden=false, cache={};
     let isBold = false;
+    let isSyncing = false; // Flag for scroll sync
 
-    // --- DB INIT ---
-    const req = indexedDB.open("ReaderUltima", 1);
+    // --- DB INIT & PREFS ---
+    const req = indexedDB.open("ReaderV12", 1);
     req.onupgradeneeded = e => { db=e.target.result; db.createObjectStore("books",{keyPath:"id",autoIncrement:true}); };
-    req.onsuccess = e => { db=e.target.result; loadLib(); };
+    req.onsuccess = e => { db=e.target.result; loadLib(); restoreLibSettings(); };
+
+    function saveLibSettings() {
+        localStorage.setItem('lib-from', document.getElementById('lib-from').value);
+        localStorage.setItem('lib-to', document.getElementById('lib-to').value);
+    }
+    function restoreLibSettings() {
+        if(localStorage.getItem('lib-from')) document.getElementById('lib-from').value = localStorage.getItem('lib-from');
+        if(localStorage.getItem('lib-to')) document.getElementById('lib-to').value = localStorage.getItem('lib-to');
+    }
 
     // --- UPLOAD ---
     document.getElementById('file-input').addEventListener('change', function(e) {
@@ -177,7 +194,7 @@
         db.transaction("books").objectStore("books").openCursor().onsuccess = e => {
             const c = e.target.result;
             if(c) {
-                const id = c.value.id; const name = c.value.name;
+                const id=c.value.id; const name=c.value.name;
                 const d = document.createElement('div'); d.className = 'book-card';
                 d.innerHTML = `<b>${name}</b> <i class="fas fa-chevron-right" style="opacity:0.3"></i>`;
                 d.addEventListener('click', () => loadAndOpen(id));
@@ -203,6 +220,10 @@
         document.getElementById('read-view').style.display='flex';
         txt = txt.replace(/xmlns.*?=".*?"/g, ''); 
         
+        // Sync Library Settings to Reader Settings
+        document.getElementById('lang-from').value = document.getElementById('lib-from').value;
+        document.getElementById('lang-to').value = document.getElementById('lib-to').value;
+
         pages = [];
         if(txt.includes('<FictionBook') || txt.includes('<?xml')) parseFB2(txt);
         else parseTXT(txt);
@@ -217,17 +238,14 @@
         const bins = {};
         const bNodes = doc.getElementsByTagName('binary');
         for(let i=0; i<bNodes.length; i++) bins[bNodes[i].getAttribute('id')] = `data:${bNodes[i].getAttribute('content-type')};base64,${bNodes[i].textContent}`;
-
         const body = doc.getElementsByTagName('body')[0];
         if(!body) { parseTXT(xml); return; }
-
         const all = body.getElementsByTagName('*');
         let buf = "";
         for(let i=0; i<all.length; i++) {
             const el = all[i];
             const tag = el.tagName.toLowerCase();
             if(el.parentNode.tagName.toLowerCase() === 'p' || el.parentNode.tagName.toLowerCase() === 'title') continue;
-
             if(tag === 'title') buf += `<h3>${el.textContent}</h3>`;
             else if(tag === 'p') buf += `<p>${el.textContent}</p>`;
             else if(tag === 'image') {
@@ -249,15 +267,34 @@
         if(buf) pages.push(buf);
     }
 
-    // --- UI LOGIC ---
+    // --- SYNC SCROLL LOGIC ---
+    const p1 = document.getElementById('p1');
+    const p2 = document.getElementById('p2');
+
+    function syncScroll(source, target) {
+        if(isSyncing) return;
+        isSyncing = true;
+        
+        // Calculate percentage
+        const p = source.scrollTop / (source.scrollHeight - source.clientHeight);
+        // Apply to target
+        target.scrollTop = p * (target.scrollHeight - target.clientHeight);
+        
+        setTimeout(() => isSyncing = false, 50); // Debounce to prevent recursion
+    }
+
+    p1.addEventListener('scroll', () => syncScroll(p1, p2));
+    p2.addEventListener('scroll', () => syncScroll(p2, p1));
+
+
+    // --- UI ---
     function render() {
         const h = pages[cur] || "";
-        document.getElementById('p1').innerHTML = h;
+        p1.innerHTML = h;
         document.getElementById('lbl').innerText = `${cur+1}/${pages.length}`;
-        document.getElementById('p1').scrollTop = 0;
-        document.getElementById('p2').scrollTop = 0;
+        p1.scrollTop = 0;
+        p2.scrollTop = 0;
         
-        const p2 = document.getElementById('p2');
         if(trans) {
             const k = cur+'_t';
             if(cache[k]) p2.innerHTML = cache[k];
@@ -278,35 +315,29 @@
         render(); 
     }
 
-    // --- SETTINGS LOGIC ---
     function setLayout(m) {
         const s = document.getElementById('split');
         if(m==='v') s.classList.add('vertical'); else s.classList.remove('vertical');
-        document.getElementById('p1').style.flexBasis = '50%'; document.getElementById('p2').style.flexBasis = '50%';
+        p1.style.flexBasis = '50%'; p2.style.flexBasis = '50%';
     }
 
     function updateStyle() {
         const size = document.getElementById('font-size').value;
         const family = document.getElementById('font-family').value;
         const weight = isBold ? 'bold' : 'normal';
-        
         document.getElementById('size-val').innerText = size + 'px';
-        
-        [document.getElementById('p1'), document.getElementById('p2')].forEach(el => {
-            el.style.fontSize = size + 'px';
-            el.style.fontFamily = family;
-            el.style.fontWeight = weight;
-        });
+        [p1, p2].forEach(el => { el.style.fontSize = size + 'px'; el.style.fontFamily = family; el.style.fontWeight = weight; });
     }
 
     function toggleBold() {
         isBold = !isBold;
         const btn = document.getElementById('btn-bold');
-        if(isBold) btn.classList.add('active'); else btn.classList.remove('active');
+        if(isBold) { btn.style.background = "var(--accent)"; btn.style.color="white"; } 
+        else { btn.style.background = "white"; btn.style.color="black"; }
         updateStyle();
     }
 
-    // --- SWIPE ---
+    // --- SWIPE & RESIZE ---
     let touchStart = 0;
     const splitEl = document.getElementById('split');
     splitEl.addEventListener('touchstart', e => { touchStart = e.changedTouches[0].clientX; }, {passive: true});
@@ -316,11 +347,8 @@
         if(Math.abs(diff) > 50) { if(diff > 0) nav(1); else nav(-1); }
     });
 
-    // --- RESIZER ---
     const rs = document.getElementById('resizer');
     const sc = document.getElementById('split');
-    const p1 = document.getElementById('p1');
-    const p2 = document.getElementById('p2');
     let isResizing = false;
 
     rs.addEventListener('pointerdown', e => {
@@ -343,6 +371,8 @@
         p2.style.display = hidden ? 'none' : 'block';
         p1.style.flexBasis = hidden ? '100%' : '50%';
         e.currentTarget.innerHTML = hidden ? '<i class="fas fa-chevron-left"></i>' : '<i class="fas fa-times"></i>';
+        // Force sync update if showing again
+        if(!hidden) syncScroll(p1, p2);
     };
 </script>
 </body>
