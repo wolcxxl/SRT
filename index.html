@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Reader IOS</title>
+    <title>ReaderIOS</title>
     
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -169,7 +169,7 @@
     document.body.addEventListener('click', warmUpTTS, {once:true});
 
     // --- DB ---
-    const req = indexedDB.open("ReaderV24", 1);
+    const req = indexedDB.open("ReaderV25", 1);
     req.onupgradeneeded = e => { db=e.target.result; db.createObjectStore("books",{keyPath:"id",autoIncrement:true}); };
     req.onsuccess = e => { db=e.target.result; loadLib(); restoreLibSettings(); };
 
@@ -273,7 +273,7 @@
         document.getElementById('settings').classList.remove('open');
     }
 
-    // --- PURE GOOGLE CHUNKING ---
+    // --- CHUNKING FOR GOOGLE ---
     function repaginate() {
         pages = [];
         let buf = "";
@@ -287,7 +287,7 @@
         if (buf.length > 0) pages.push({ left: buf, right: null });
     }
 
-    // --- GOOGLE API (Optimized) ---
+    // --- GOOGLE API ---
     async function googleTranslate(html, from, to) {
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = html;
@@ -471,8 +471,20 @@
         t.split('\n').forEach(l => { if(l.trim()) rawParagraphs.push(`<p>${l}</p>`); });
     }
 
+    // --- RENDER & SYNC ---
     const p1 = document.getElementById('p1'); const p2 = document.getElementById('p2');
     
+    // !!! RESTORED SYNC SCROLL LOGIC !!!
+    function syncScroll(source, target) {
+        if(isSyncing) return;
+        isSyncing = true;
+        const p = source.scrollTop / (source.scrollHeight - source.clientHeight);
+        target.scrollTop = p * (target.scrollHeight - target.clientHeight);
+        setTimeout(() => isSyncing = false, 50);
+    }
+    p1.addEventListener('scroll', () => syncScroll(p1, p2));
+    p2.addEventListener('scroll', () => syncScroll(p2, p1));
+
     function render() {
         const pageData = pages[cur] || { left: "", right: "" };
         p1.innerHTML = pageData.left;
@@ -481,12 +493,20 @@
         
         if(trans) {
             const k = cur+'_t_'+document.getElementById('lang-to').value;
-            if(cache[k]) p2.innerHTML = cache[k];
+            if(cache[k]) { 
+                p2.innerHTML = cache[k]; 
+                // Force sync on render
+                setTimeout(() => syncScroll(p1, p2), 50);
+            }
             else { 
                 p2.innerHTML = '<div style="padding:20px; color:#888; text-align:center"><i class="fas fa-spinner fa-spin"></i> Перевод (Google)...</div>';
                 const from = document.getElementById('lang-from').value;
                 const to = document.getElementById('lang-to').value;
-                googleTranslate(pageData.left, from, to).then(t => { cache[k] = t; p2.innerHTML = t; });
+                googleTranslate(pageData.left, from, to).then(t => { 
+                    cache[k] = t; 
+                    p2.innerHTML = t; 
+                    setTimeout(() => syncScroll(p1, p2), 50); // Sync after load
+                });
             }
         } else p2.innerHTML = "";
     }
@@ -551,7 +571,7 @@
         const hdl = e.currentTarget;
         const splitContainer = document.getElementById('split');
         if(hidden) { hdl.innerHTML = '<i class="fas fa-chevron-left"></i>'; hdl.classList.remove('is-close'); splitContainer.classList.add('is-hidden'); }
-        else { hdl.innerHTML = '<i class="fas fa-times"></i>'; hdl.classList.add('is-close'); splitContainer.classList.remove('is-hidden'); }
+        else { hdl.innerHTML = '<i class="fas fa-times"></i>'; hdl.classList.add('is-close'); splitContainer.classList.remove('is-hidden'); syncScroll(p1, p2); }
     };
 </script>
 </body>
