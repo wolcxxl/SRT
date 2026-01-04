@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Reader V18 (Clean & Fix)</title>
+    <title>Reader V19 (Fast Translate)</title>
     
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -26,9 +26,12 @@
         .lib-settings-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
         .lib-label { font-size: 13px; color: #666; font-weight: 500; }
         .lib-select { padding: 8px; border-radius: 8px; border: 1px solid #ddd; background: #f9f9f9; flex: 1; font-weight: bold; }
+        
+        /* Button Fix */
         .upload-container { position: relative; width: 100%; height: 55px; margin-bottom: 20px; }
         .upload-visual { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--accent); color: white; border-radius: 12px; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 16px; box-shadow: 0 4px 10px rgba(0,122,255,0.3); z-index: 1; }
         #file-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; z-index: 999; cursor: pointer; }
+        
         .book-card { background: var(--panel); padding: 15px; margin-bottom: 12px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ddd; transition: background 0.1s; cursor: pointer; user-select: none; }
         .book-card:active { background: #e5e5e5; transform: scale(0.98); }
         .book-info { flex: 1; display: flex; align-items: center; gap: 10px; overflow: hidden; }
@@ -149,7 +152,7 @@
     let isBold = false; let isSyncing = false;
 
     // --- DB ---
-    const req = indexedDB.open("ReaderV18", 1);
+    const req = indexedDB.open("ReaderV19", 1);
     req.onupgradeneeded = e => { db=e.target.result; db.createObjectStore("books",{keyPath:"id",autoIncrement:true}); };
     req.onsuccess = e => { db=e.target.result; loadLib(); restoreLibSettings(); };
 
@@ -241,9 +244,7 @@
         };
     }
 
-    // --- MASTER PARSER WITH CLEANING ---
     async function parseAndRender(book) {
-        // !!! FIX 1: Clear Cache !!!
         cache = {}; 
         document.getElementById('p2').innerHTML = ""; 
         pages = [];
@@ -262,6 +263,7 @@
         document.getElementById('settings').classList.remove('open');
     }
 
+    // --- SINGLE FAST PROXY TRANSLATE ---
     async function googleTranslate(html, from, to) {
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = html;
@@ -274,26 +276,26 @@
         const separator = ' ||| ';
         const fullText = textNodes.map(node => node.textContent).join(separator);
         
-        const proxies = [
-            (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-            (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-            (u) => `https://thingproxy.freeboard.io/fetch/${u}`
-        ];
-
+        // Single fast proxy
         const targetUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(fullText)}`;
+        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
 
-        for (const createProxy of proxies) {
-            try {
-                const res = await fetch(createProxy(targetUrl));
-                if(!res.ok) throw new Error('Proxy status ' + res.status);
-                const data = await res.json();
-                const translatedFull = data[0].map(x => x[0]).join('');
-                const translatedParts = translatedFull.split(separator.trim());
-                for(let i=0; i < textNodes.length && i < translatedParts.length; i++) textNodes[i].textContent = translatedParts[i];
-                return tempDiv.innerHTML;
-            } catch(e) { console.warn("Proxy failed", e); continue; }
+        try {
+            const res = await fetch(proxyUrl);
+            if(!res.ok) throw new Error('Proxy status ' + res.status);
+            const data = await res.json();
+            
+            const translatedFull = data[0].map(x => x[0]).join('');
+            const translatedParts = translatedFull.split(separator.trim());
+            
+            for(let i=0; i < textNodes.length && i < translatedParts.length; i++) {
+                textNodes[i].textContent = translatedParts[i];
+            }
+            return tempDiv.innerHTML;
+        } catch(e) {
+            console.warn("Translation failed", e);
+            return `<div style="color:#d32f2f; background:#ffebee; padding:10px; border-radius:8px;">Сбой перевода. <button onclick="retryTrans()" style="background:var(--red); color:white; border:none; padding:3px 8px; border-radius:4px;">Повторить</button></div>` + html;
         }
-        return `<div style="color:#d32f2f; background:#ffebee; padding:10px; border-radius:8px;">Перевод не удался. <button onclick="retryTrans()" style="background:var(--red); color:white; border:none; padding:3px 8px; border-radius:4px;">Повторить</button></div>` + html;
     }
 
     function retryTrans() {
@@ -302,6 +304,7 @@
         render();
     }
 
+    // --- PARSERS (Smart Chunking V18) ---
     async function parsePDF(buffer) {
         showLoader("PDF...");
         const pdf = await pdfjsLib.getDocument({data: buffer}).promise;
@@ -352,7 +355,7 @@
             for(let j=0; j<manifestItems.length; j++) { if(manifestItems[j].getAttribute("id")===idref) { href=manifestItems[j].getAttribute("href"); break; } }
             if(href) {
                 let chContent = await zip.file(rootDir + href).async("text");
-                // Cleanup HTML
+                // Clean scripts/styles
                 chContent = chContent.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gim, "")
                                      .replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gim, "");
                 
@@ -361,8 +364,6 @@
                     const regex = new RegExp(`src=["'].*?${filename}["']`, 'g');
                     chContent = chContent.replace(regex, `src="${blobUrl}"`);
                 }
-                
-                // Parse HTML to extract text content properly
                 const chDoc = parser.parseFromString(chContent, "text/html") || parser.parseFromString(chContent, "application/xhtml+xml");
                 if(chDoc.body) fullHtml += chDoc.body.innerHTML;
             }
@@ -370,39 +371,24 @@
         chunkContent(fullHtml);
     }
 
-    // !!! FIX 2: Better Chunking !!!
     function chunkContent(html) {
-        // Create temp element to traverse nodes
         const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = html.replace(/\s\s+/g, ' '); // Compact spaces
-        
+        tempDiv.innerHTML = html.replace(/\s\s+/g, ' ');
         let buf = "";
-        
-        // Deep Tree Walker to flatten structure
         const walker = document.createTreeWalker(tempDiv, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
         let node;
-        
         while(node = walker.nextNode()) {
-            if(node.nodeType === 3) { // Text Node
+            if(node.nodeType === 3) {
                 const txt = node.textContent.trim();
                 if(txt.length > 0) {
-                    // Check parent tag to decide if block or inline
-                    const parentTag = node.parentElement.tagName;
-                    if(['P','DIV','H1','H2','H3','LI'].includes(parentTag)) {
-                        buf += `<p>${txt}</p>`;
-                    } else {
-                        buf += ` ${txt} `; // Inline text
-                    }
+                    const pTag = node.parentElement.tagName;
+                    if(['P','DIV','H1','H2','H3','LI'].includes(pTag)) buf += `<p>${txt}</p>`;
+                    else buf += ` ${txt} `;
                 }
             } else if (node.nodeType === 1 && node.tagName === 'IMG') {
                 buf += node.outerHTML;
             }
-            
-            // Cut page if buffer is big enough
-            if (buf.length > 1000) {
-                pages.push(buf);
-                buf = "";
-            }
+            if (buf.length > 1000) { pages.push(buf); buf = ""; }
         }
         if(buf.length > 0) pages.push(buf);
     }
@@ -532,7 +518,6 @@
     }
     function onUp(e) { isResizing=false; rs.releasePointerCapture(e.pointerId); }
     
-    // UX JS: Red Handle + Resize logic
     document.getElementById('handle').onclick = e => {
         e.stopPropagation(); hidden = !hidden;
         p2.style.display = hidden ? 'none' : 'block';
