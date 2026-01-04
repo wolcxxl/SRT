@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Reader V15 (PDF & EPUB)</title>
+    <title>Reader V16 (Edit & Delete)</title>
     
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,10 +13,7 @@
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script>
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    </script>
-    
+    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
     <style>
@@ -45,12 +42,20 @@
         #file-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; z-index: 999; cursor: pointer; }
 
         .book-card {
-            background: var(--panel); padding: 18px; margin-bottom: 12px; border-radius: 12px;
+            background: var(--panel); padding: 15px; margin-bottom: 12px; border-radius: 12px;
             display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ddd;
             transition: background 0.1s; cursor: pointer; user-select: none;
         }
         .book-card:active { background: #e5e5e5; transform: scale(0.98); }
-        .book-type { font-size: 10px; padding: 3px 6px; border-radius: 4px; background: #eee; color: #555; font-weight: bold; margin-right: 10px; }
+        
+        .book-info { flex: 1; display: flex; align-items: center; gap: 10px; overflow: hidden; }
+        .book-type { font-size: 10px; padding: 3px 6px; border-radius: 4px; background: #eee; color: #555; font-weight: bold; flex-shrink: 0;}
+        .book-name { font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 16px; }
+
+        .book-actions { display: flex; gap: 15px; margin-left: 10px; }
+        .action-btn { color: #888; padding: 5px; font-size: 16px; transition: color 0.2s; }
+        .action-btn.edit:hover { color: var(--accent); }
+        .action-btn.del:hover { color: #ff3b30; }
 
         #loader { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(255,255,255,0.9); z-index: 2000; justify-content: center; align-items: center; flex-direction: column; text-align: center; padding: 20px; }
         .spinner { width: 40px; height: 40px; border: 4px solid #ddd; border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px;}
@@ -92,10 +97,7 @@
 </head>
 <body>
 
-<div id="loader">
-    <div class="spinner"></div>
-    <div id="loader-text">Обработка...</div>
-</div>
+<div id="loader"><div class="spinner"></div><div id="loader-text">Обработка...</div></div>
 
 <div id="lib-view">
     <h1 style="margin-bottom: 20px;">Мои Книги</h1>
@@ -172,7 +174,7 @@
     let db, pages=[], cur=0, trans=false, hidden=false, cache={};
     let isBold = false; let isSyncing = false;
 
-    const req = indexedDB.open("ReaderV15", 1);
+    const req = indexedDB.open("ReaderV16", 1);
     req.onupgradeneeded = e => { db=e.target.result; db.createObjectStore("books",{keyPath:"id",autoIncrement:true}); };
     req.onsuccess = e => { db=e.target.result; loadLib(); restoreLibSettings(); };
 
@@ -185,48 +187,28 @@
         if(localStorage.getItem('lib-to')) document.getElementById('lib-to').value = localStorage.getItem('lib-to');
     }
 
-    // --- UNIVERSAL FILE HANDLER ---
     document.getElementById('file-input').addEventListener('change', async function(e) {
-        const f = e.target.files[0];
-        if(!f) return;
-        
-        showLoader("Анализ файла...");
-        
+        const f = e.target.files[0]; if(!f) return;
+        showLoader("Анализ...");
         const type = f.name.split('.').pop().toLowerCase();
         let content = null;
-        let isBinary = false;
-
         try {
             if(type === 'epub' || type === 'pdf') {
-                // Read as ArrayBuffer for binary formats
                 content = await f.arrayBuffer();
-                isBinary = true;
             } else {
-                // Read as Text for FB2/TXT
                 content = await new Promise((resolve) => {
                     const r = new FileReader();
                     r.onload = ev => resolve(ev.target.result);
                     r.readAsText(f);
                 });
             }
-
             const tx = db.transaction("books", "readwrite");
-            tx.objectStore("books").add({ name: f.name, type: type, content: content, isBinary: isBinary });
-            tx.oncomplete = () => {
-                hideLoader();
-                loadLib();
-                this.value = '';
-            };
-        } catch(err) {
-            hideLoader();
-            alert("Ошибка загрузки: " + err.message);
-        }
+            tx.objectStore("books").add({ name: f.name, type: type, content: content });
+            tx.oncomplete = () => { hideLoader(); loadLib(); this.value = ''; };
+        } catch(err) { hideLoader(); alert("Ошибка: " + err.message); }
     });
 
-    function showLoader(text) {
-        document.getElementById('loader-text').innerText = text;
-        document.getElementById('loader').style.display = 'flex';
-    }
+    function showLoader(t) { document.getElementById('loader-text').innerText = t; document.getElementById('loader').style.display = 'flex'; }
     function hideLoader() { document.getElementById('loader').style.display = 'none'; }
 
     function loadLib() {
@@ -234,14 +216,57 @@
         db.transaction("books").objectStore("books").openCursor().onsuccess = e => {
             const c = e.target.result;
             if(c) {
-                const id=c.value.id; const name=c.value.name; const type=c.value.type.toUpperCase();
+                const id=c.value.id; const name=c.value.name; const type=(c.value.type || 'TXT').toUpperCase();
                 const d = document.createElement('div'); d.className = 'book-card';
-                d.innerHTML = `<div><span class="book-type">${type}</span><b>${name}</b></div> <i class="fas fa-chevron-right" style="opacity:0.3"></i>`;
-                d.addEventListener('click', () => loadAndOpen(id));
+                
+                // HTML структуры карточки с кнопками
+                d.innerHTML = `
+                    <div class="book-info">
+                        <span class="book-type">${type}</span>
+                        <div class="book-name">${name}</div>
+                    </div>
+                    <div class="book-actions">
+                        <i class="fas fa-pen action-btn edit" onclick="renameBook(event, ${id}, '${name.replace(/'/g, "\\'")}')"></i>
+                        <i class="fas fa-trash action-btn del" onclick="deleteBook(event, ${id})"></i>
+                    </div>
+                `;
+                
+                // Клик по самой карточке открывает книгу
+                d.onclick = (e) => {
+                    // Если клик был не по кнопкам
+                    if(!e.target.closest('.action-btn')) loadAndOpen(id);
+                };
+
                 l.appendChild(d);
                 c.continue();
             }
         };
+    }
+    
+    // --- RENAME & DELETE ---
+    function renameBook(e, id, oldName) {
+        e.stopPropagation(); // Остановить открытие книги
+        const newName = prompt("Новое название:", oldName);
+        if(newName && newName.trim() !== "") {
+            const tx = db.transaction("books", "readwrite");
+            const store = tx.objectStore("books");
+            const req = store.get(id);
+            req.onsuccess = () => {
+                const data = req.result;
+                data.name = newName;
+                store.put(data);
+                loadLib();
+            };
+        }
+    }
+
+    function deleteBook(e, id) {
+        e.stopPropagation(); // Остановить открытие книги
+        if(confirm("Удалить эту книгу?")) {
+            const tx = db.transaction("books", "readwrite");
+            tx.objectStore("books").delete(id);
+            tx.oncomplete = loadLib;
+        }
     }
 
     async function loadAndOpen(id) {
@@ -256,176 +281,108 @@
                     document.getElementById('lib-view').style.display='none';
                     document.getElementById('read-view').style.display='flex';
                     hideLoader();
-                } catch(err) {
-                    hideLoader();
-                    alert("Ошибка чтения: " + err.message);
-                }
+                } catch(err) { hideLoader(); alert("Ошибка: " + err.message); }
             }
         };
     }
 
-    // --- MASTER PARSER ---
     async function parseAndRender(book) {
         pages = [];
         const type = book.type;
-        
         document.getElementById('lang-from').value = document.getElementById('lib-from').value;
         document.getElementById('lang-to').value = document.getElementById('lib-to').value;
 
-        if (type === 'pdf') {
-            await parsePDF(book.content);
-        } else if (type === 'epub') {
-            await parseEPUB(book.content);
-        } else if (book.content.includes('<FictionBook') || book.content.includes('<?xml')) {
-            parseFB2(book.content);
-        } else {
-            parseTXT(book.content);
-        }
+        if (type === 'pdf') await parsePDF(book.content);
+        else if (type === 'epub') await parseEPUB(book.content);
+        else if (book.content.includes('<FictionBook') || book.content.includes('<?xml')) parseFB2(book.content);
+        else parseTXT(book.content);
 
-        if(pages.length === 0) pages.push("<p>Пустая книга или ошибка парсинга</p>");
-        
+        if(pages.length === 0) pages.push("<p>Пусто</p>");
         cur=0; render();
         document.getElementById('settings').classList.remove('open');
     }
 
-    // --- PDF PARSER (Text Reflow) ---
     async function parsePDF(buffer) {
         showLoader("Парсинг PDF...");
         const pdf = await pdfjsLib.getDocument({data: buffer}).promise;
         let fullText = "";
-        
         for (let i = 1; i <= pdf.numPages; i++) {
-            showLoader(`PDF: Стр ${i} из ${pdf.numPages}`);
+            showLoader(`PDF: ${i}/${pdf.numPages}`);
             const page = await pdf.getPage(i);
             const textContent = await page.getTextContent();
-            // Simple text extraction
             const pageText = textContent.items.map(item => item.str).join(' ');
-            
-            // Basic formatting heuristic
             if(pageText.trim().length > 0) {
-                 // Try to split by periods to make paragraphs
                  const paragraphs = pageText.replace(/\. /g, '.</p><p>');
                  fullText += `<p>${paragraphs}</p><hr style="border:0; border-bottom:1px dashed #ccc; margin:20px 0;">`;
             }
         }
-        
-        // Chunking
         chunkContent(fullText);
     }
 
-    // --- EPUB PARSER (Full Support) ---
     async function parseEPUB(buffer) {
         showLoader("Распаковка EPUB...");
         const zip = new JSZip();
         await zip.loadAsync(buffer);
-        
-        // 1. Find OPF
         const container = await zip.file("META-INF/container.xml").async("text");
         const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(container, "text/xml");
-        const rootPath = xmlDoc.getElementsByTagName("rootfile")[0].getAttribute("full-path");
+        const rootPath = parser.parseFromString(container, "text/xml").getElementsByTagName("rootfile")[0].getAttribute("full-path");
         const rootDir = rootPath.substring(0, rootPath.lastIndexOf('/') + 1);
         
-        // 2. Parse OPF
         const opfContent = await zip.file(rootPath).async("text");
         const opfDoc = parser.parseFromString(opfContent, "text/xml");
         const manifest = opfDoc.getElementsByTagName("manifest")[0];
         const spine = opfDoc.getElementsByTagName("spine")[0];
         
-        // 3. Map resources (images) to Blob URLs
         const resources = {};
         const manifestItems = manifest.getElementsByTagName("item");
-        
         for (let i = 0; i < manifestItems.length; i++) {
             const item = manifestItems[i];
             const href = item.getAttribute("href");
-            const id = item.getAttribute("id");
             const mediaType = item.getAttribute("media-type");
-            
             if (mediaType.startsWith("image/")) {
-                const imgPath = rootDir + href;
-                const imgFile = zip.file(imgPath);
+                const imgFile = zip.file(rootDir + href);
                 if (imgFile) {
                     const imgBlob = await imgFile.async("blob");
-                    resources[href] = URL.createObjectURL(imgBlob); // Save plain filename key
-                    // Also save with full path just in case
-                    resources[imgPath] = resources[href]; 
+                    const url = URL.createObjectURL(imgBlob);
+                    resources[href] = url; resources[rootDir + href] = url;
                 }
             }
         }
 
-        // 4. Process Spine (Chapters)
         let fullHtml = "";
         const spineItems = spine.getElementsByTagName("itemref");
-        
         for (let i = 0; i < spineItems.length; i++) {
             showLoader(`EPUB: Глава ${i+1}`);
             const idref = spineItems[i].getAttribute("idref");
-            // Find item in manifest by id
             let href = "";
-            for(let j=0; j<manifestItems.length; j++) {
-                if(manifestItems[j].getAttribute("id") === idref) {
-                    href = manifestItems[j].getAttribute("href");
-                    break;
-                }
-            }
-            
+            for(let j=0; j<manifestItems.length; j++) { if(manifestItems[j].getAttribute("id")===idref) { href=manifestItems[j].getAttribute("href"); break; } }
             if(href) {
-                const chPath = rootDir + href;
-                let chContent = await zip.file(chPath).async("text");
-                
-                // Replace image sources
-                // Look for src="..." and replace if we have a blob
-                // This is a simple regex replacer, might need refinement for complex paths
+                let chContent = await zip.file(rootDir + href).async("text");
                 for (const [key, blobUrl] of Object.entries(resources)) {
-                    // Try to match standard filename
                     const filename = key.split('/').pop();
                     const regex = new RegExp(`src=["'].*?${filename}["']`, 'g');
                     chContent = chContent.replace(regex, `src="${blobUrl}"`);
                 }
-                
-                // Extract body content
                 const chDoc = parser.parseFromString(chContent, "text/html") || parser.parseFromString(chContent, "application/xhtml+xml");
-                if(chDoc.body) {
-                    fullHtml += chDoc.body.innerHTML;
-                }
+                if(chDoc.body) fullHtml += chDoc.body.innerHTML;
             }
         }
-        
         chunkContent(fullHtml);
     }
 
     function chunkContent(html) {
-        // Cleaning
-        // Replace huge spaces
         html = html.replace(/\s\s+/g, ' ');
-        
-        // Split by simple logic (paragraphs or length)
-        // Here we use the V14 logic adapted
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = html;
-        
+        const tempDiv = document.createElement('div'); tempDiv.innerHTML = html;
         let buf = "";
         const children = tempDiv.childNodes;
-        
         for (let i = 0; i < children.length; i++) {
             const node = children[i];
-            if (node.nodeType === 3) { // Text
-                if (node.textContent.trim()) buf += `<p>${node.textContent}</p>`;
-            } else if (node.nodeType === 1) { // Element
-                 if (node.tagName === 'IMG') {
-                     buf += node.outerHTML;
-                 } else if (['P','DIV','H1','H2','H3','H4'].includes(node.tagName)) {
-                     buf += node.outerHTML;
-                 } else {
-                     buf += `<p>${node.innerText}</p>`;
-                 }
+            if (node.nodeType === 3) { if(node.textContent.trim()) buf += `<p>${node.textContent}</p>`; }
+            else if (node.nodeType === 1) {
+                 if (['IMG','P','DIV','H1','H2','H3','H4'].includes(node.tagName)) buf += node.outerHTML;
+                 else buf += `<p>${node.innerText}</p>`;
             }
-            
-            if (buf.length > 1500) {
-                pages.push(buf);
-                buf = "";
-            }
+            if (buf.length > 1500) { pages.push(buf); buf = ""; }
         }
         if(buf) pages.push(buf);
     }
@@ -459,63 +416,41 @@
 
     function parseTXT(t) {
         let buf = "";
-        t.split('\n').forEach(l => {
-            if(l.trim()) buf += `<p>${l}</p>`;
-            if(buf.length > 1500) { pages.push(buf); buf=""; }
-        });
+        t.split('\n').forEach(l => { if(l.trim()) buf += `<p>${l}</p>`; if(buf.length > 1500) { pages.push(buf); buf=""; } });
         if(buf) pages.push(buf);
     }
 
-    // --- UI & SYNC ---
-    const p1 = document.getElementById('p1');
-    const p2 = document.getElementById('p2');
-
+    const p1 = document.getElementById('p1'); const p2 = document.getElementById('p2');
     function attachSyncEvents() {
-        const paras1 = document.querySelectorAll('#p1 p');
-        const paras2 = document.querySelectorAll('#p2 p');
+        const paras1 = document.querySelectorAll('#p1 p'); const paras2 = document.querySelectorAll('#p2 p');
         function highlight(index, targetEl) {
             document.querySelectorAll('.sync-active').forEach(e => e.classList.remove('sync-active'));
             if(paras1[index]) paras1[index].classList.add('sync-active');
-            if(paras2[index]) {
-                paras2[index].classList.add('sync-active');
-                if(targetEl !== paras2[index]) paras2[index].scrollIntoView({ behavior: "smooth", block: "center" });
-            }
+            if(paras2[index]) { paras2[index].classList.add('sync-active'); if(targetEl !== paras2[index]) paras2[index].scrollIntoView({ behavior: "smooth", block: "center" }); }
             if(targetEl !== paras1[index] && paras1[index]) paras1[index].scrollIntoView({ behavior: "smooth", block: "center" });
         }
         paras1.forEach((p, i) => p.onclick = () => highlight(i, p));
         paras2.forEach((p, i) => p.onclick = () => highlight(i, p));
     }
-
     function syncScroll(source, target) {
-        if(isSyncing) return;
-        isSyncing = true;
+        if(isSyncing) return; isSyncing = true;
         const p = source.scrollTop / (source.scrollHeight - source.clientHeight);
         target.scrollTop = p * (target.scrollHeight - target.clientHeight);
         setTimeout(() => isSyncing = false, 50);
     }
-    p1.addEventListener('scroll', () => syncScroll(p1, p2));
-    p2.addEventListener('scroll', () => syncScroll(p2, p1));
+    p1.addEventListener('scroll', () => syncScroll(p1, p2)); p2.addEventListener('scroll', () => syncScroll(p2, p1));
 
     function render() {
         const h = pages[cur] || "";
         p1.innerHTML = h;
         document.getElementById('lbl').innerText = `${cur+1}/${pages.length}`;
         p1.scrollTop = 0; p2.scrollTop = 0;
-        
         if(trans) {
             const k = cur+'_t';
             if(cache[k]) { p2.innerHTML = cache[k]; attachSyncEvents(); }
-            else { 
-                p2.innerHTML = "<i>...</i>"; 
-                setTimeout(() => { 
-                    cache[k] = h.replace(/<p>/g, "<p style='color:#007AFF'>"); 
-                    p2.innerHTML = cache[k]; 
-                    attachSyncEvents();
-                }, 200); 
-            }
+            else { p2.innerHTML = "<i>...</i>"; setTimeout(() => { cache[k] = h.replace(/<p>/g, "<p style='color:#007AFF'>"); p2.innerHTML = cache[k]; attachSyncEvents(); }, 200); }
         } else p2.innerHTML = "";
     }
-
     function nav(d) { if(cur+d>=0 && cur+d<pages.length) { cur+=d; render(); } }
     function toggleMenu() { document.getElementById('settings').classList.toggle('open'); }
     function closeBook() { document.getElementById('read-view').style.display='none'; document.getElementById('lib-view').style.display='block'; }
@@ -542,8 +477,7 @@
     function toggleBold() {
         isBold = !isBold;
         const btn = document.getElementById('btn-bold');
-        if(isBold) { btn.style.background = "var(--accent)"; btn.style.color="white"; } 
-        else { btn.style.background = "white"; btn.style.color="black"; }
+        if(isBold) { btn.style.background = "var(--accent)"; btn.style.color="white"; } else { btn.style.background = "white"; btn.style.color="black"; }
         updateStyle();
     }
 
@@ -554,19 +488,11 @@
         if(isResizing) return;
         const diffX = touchStartX - e.changedTouches[0].clientX;
         const diffY = touchStartY - e.changedTouches[0].clientY;
-        if(Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY)) {
-            if(diffX > 0) nav(1); else nav(-1);
-        }
+        if(Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY)) { if(diffX > 0) nav(1); else nav(-1); }
     });
 
-    const rs = document.getElementById('resizer');
-    const sc = document.getElementById('split');
-    let isResizing = false;
-    rs.addEventListener('pointerdown', e => {
-        if(e.target.closest('#handle')) return;
-        isResizing=true; rs.setPointerCapture(e.pointerId);
-        rs.addEventListener('pointermove', onMove); rs.addEventListener('pointerup', onUp);
-    });
+    const rs = document.getElementById('resizer'); const sc = document.getElementById('split'); let isResizing = false;
+    rs.addEventListener('pointerdown', e => { if(e.target.closest('#handle')) return; isResizing=true; rs.setPointerCapture(e.pointerId); rs.addEventListener('pointermove', onMove); rs.addEventListener('pointerup', onUp); });
     function onMove(e) {
         if(!isResizing) return;
         const r = sc.getBoundingClientRect();
