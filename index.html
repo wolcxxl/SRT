@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Reader IOS</title>
+    <title>ReaderIOS</title>
     
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
     <style>
-        :root { --accent: #007AFF; --red: #ff3b30; --bg: #f2f2f7; --panel: #fff; }
+        :root { --accent: #007AFF; --red: #ff3b30; --bg: #f2f2f7; --panel: #fff; --highlight: rgba(255, 235, 59, 0.4); }
         body { margin:0; font-family: -apple-system, sans-serif; background: var(--bg); height: 100vh; display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: none; }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
@@ -50,25 +50,15 @@
         .split.vertical { flex-direction: column; }
         .page { flex: 1; padding: 20px; overflow-y: auto; font-size: 17px; line-height: 1.6; -webkit-overflow-scrolling: touch; overscroll-behavior: none; position: relative; }
         .page img { max-width: 100%; border-radius: 8px; margin: 10px auto; display: block; }
-        .page p { margin-bottom: 10px; cursor: text; }
+        .sync-active { background-color: var(--highlight); border-radius: 4px; transition: background 0.2s; cursor: pointer; }
+        .page p { margin-bottom: 10px; cursor: pointer; }
 
-        /* --- POPUP DICTIONARY --- */
-        #dict-popup {
-            display: none; position: absolute; z-index: 3000;
-            background: #333; color: white; padding: 10px 15px;
-            border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-            max-width: 250px; font-size: 14px; text-align: center;
-            /* Стрелочка снизу */
-        }
-        #dict-popup::after {
-            content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px;
-            border-width: 5px; border-style: solid; border-color: #333 transparent transparent transparent;
-        }
+        #dict-popup { display: none; position: absolute; z-index: 3000; background: #333; color: white; padding: 10px 15px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); max-width: 250px; font-size: 14px; text-align: center; }
+        #dict-popup::after { content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px; border-width: 5px; border-style: solid; border-color: #333 transparent transparent transparent; }
         .dict-word { font-weight: bold; margin-bottom: 5px; border-bottom: 1px solid #555; padding-bottom: 5px; display: block; }
         .dict-trans { display: block; margin-bottom: 5px; }
         .dict-actions { display: flex; justify-content: center; gap: 15px; margin-top: 5px; }
         .dict-btn { background: none; border: none; color: #4db6ac; cursor: pointer; font-size: 16px; }
-        /* ----------------------- */
 
         .resizer { background: #ddd; z-index: 100; display: flex; justify-content: center; align-items: center; }
         .split:not(.vertical) .resizer { width: 24px; margin: 0 -12px; cursor: col-resize; }
@@ -86,6 +76,9 @@
         select, button { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; background: white; height: 40px; }
         button.active { background: var(--accent); color: white; border-color: var(--accent); }
         input[type=range] { width: 100%; height: 5px; border-radius: 5px; background: #d3d3d3; outline: none; }
+        
+        .mode-switch { font-weight: bold; font-size: 13px; }
+        .mode-switch.dual { background: #E91E63; color: white; border-color: #E91E63; }
     </style>
 </head>
 <body>
@@ -128,6 +121,9 @@
 
     <div id="settings">
         <div class="row">
+            <button onclick="toggleMode()" id="btn-mode" class="mode-switch">Режим: Google</button>
+        </div>
+        <div class="row">
             <select id="lang-from"><option value="auto">Авто</option><option value="en">EN</option><option value="de">DE</option><option value="fr">FR</option><option value="zh">CN</option></select>
             <i class="fas fa-arrow-right" style="color:#ccc"></i>
             <select id="lang-to"><option value="ru">RU</option><option value="en">EN</option><option value="uk">UK</option><option value="kk">KZ</option></select>
@@ -165,9 +161,26 @@
 
     let db, pages=[], cur=0, trans=false, hidden=false, cache={};
     let isBold = false; let isSyncing = false;
+    let isDualMode = false; // NEW: Dual Mode Flag
+    let rawParagraphs = []; // Store raw paragraphs for re-chunking
+
+    // --- TTS WARMUP ---
+    let ttsWarmed = false;
+    function warmUpTTS() {
+        if(ttsWarmed) return;
+        window.speechSynthesis.getVoices(); // Force load voices
+        // Silent utterance to wake up engine
+        const u = new SpeechSynthesisUtterance('');
+        u.volume = 0;
+        window.speechSynthesis.speak(u);
+        ttsWarmed = true;
+    }
+    // Warmup on touch
+    document.body.addEventListener('touchstart', warmUpTTS, {once:true});
+    document.body.addEventListener('click', warmUpTTS, {once:true});
 
     // --- DB ---
-    const req = indexedDB.open("ReaderV20", 1);
+    const req = indexedDB.open("ReaderV21", 1);
     req.onupgradeneeded = e => { db=e.target.result; db.createObjectStore("books",{keyPath:"id",autoIncrement:true}); };
     req.onsuccess = e => { db=e.target.result; loadLib(); restoreLibSettings(); };
 
@@ -186,15 +199,9 @@
         const type = f.name.split('.').pop().toLowerCase();
         let content = null;
         try {
-            if(type === 'epub' || type === 'pdf') {
-                content = await f.arrayBuffer();
-            } else {
-                content = await new Promise((resolve) => {
-                    const r = new FileReader();
-                    r.onload = ev => resolve(ev.target.result);
-                    r.readAsText(f);
-                });
-            }
+            if(type === 'epub' || type === 'pdf') content = await f.arrayBuffer();
+            else content = await new Promise((r) => { const rd = new FileReader(); rd.onload = ev => r(ev.target.result); rd.readAsText(f); });
+            
             const tx = db.transaction("books", "readwrite");
             tx.objectStore("books").add({ name: f.name, type: type, content: content });
             tx.oncomplete = () => { hideLoader(); loadLib(); this.value = ''; };
@@ -263,22 +270,81 @@
         cache = {}; 
         document.getElementById('p2').innerHTML = ""; 
         pages = [];
+        rawParagraphs = []; // Clear raw buffer
         
         const type = book.type;
         document.getElementById('lang-from').value = document.getElementById('lib-from').value;
         document.getElementById('lang-to').value = document.getElementById('lib-to').value;
+
+        // Reset mode to Google by default on new book
+        isDualMode = false;
+        updateModeBtn();
 
         if (type === 'pdf') await parsePDF(book.content);
         else if (type === 'epub') await parseEPUB(book.content);
         else if (book.content.includes('<FictionBook') || book.content.includes('<?xml')) parseFB2(book.content);
         else parseTXT(book.content);
 
-        if(pages.length === 0) pages.push("<p>Пусто</p>");
+        // Initial chunking (Google Mode)
+        repaginate();
+
+        if(pages.length === 0) pages.push({left: "<p>Пусто</p>", right: ""});
         cur=0; render();
         document.getElementById('settings').classList.remove('open');
     }
 
-    // --- FULL PAGE TRANSLATION ---
+    // --- RE-PAGINATION LOGIC ---
+    function repaginate() {
+        pages = [];
+        if (isDualMode) {
+            // Dual Mode: Odd paragraphs Left, Even paragraphs Right
+            // Assuming interleaved text: Orig, Trans, Orig, Trans...
+            // Or just split paragraphs 1-1
+            for (let i = 0; i < rawParagraphs.length; i += 2) {
+                const left = rawParagraphs[i] || "";
+                const right = rawParagraphs[i+1] || "";
+                pages.push({ left: left, right: right, type: 'dual' });
+            }
+        } else {
+            // Google Mode: Chunk by length, Right is empty (for API)
+            let buf = "";
+            for (let i = 0; i < rawParagraphs.length; i++) {
+                buf += rawParagraphs[i];
+                if (buf.length > 1000) {
+                    pages.push({ left: buf, right: null, type: 'google' });
+                    buf = "";
+                }
+            }
+            if (buf.length > 0) pages.push({ left: buf, right: null, type: 'google' });
+        }
+    }
+
+    // --- MODES ---
+    function toggleMode() {
+        isDualMode = !isDualMode;
+        updateModeBtn();
+        repaginate();
+        cur = 0;
+        render();
+    }
+
+    function updateModeBtn() {
+        const btn = document.getElementById('btn-mode');
+        if (isDualMode) {
+            btn.innerText = "Режим: Встроенный";
+            btn.classList.add('dual');
+            // Disable translate toggle in Dual mode as it's implicit
+            document.getElementById('btn-trans').style.opacity = '0.5';
+            document.getElementById('btn-trans').style.pointerEvents = 'none';
+        } else {
+            btn.innerText = "Режим: Google";
+            btn.classList.remove('dual');
+            document.getElementById('btn-trans').style.opacity = '1';
+            document.getElementById('btn-trans').style.pointerEvents = 'auto';
+        }
+    }
+
+    // --- GOOGLE API ---
     async function googleTranslate(html, from, to) {
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = html;
@@ -299,126 +365,82 @@
             const res = await fetch(proxyUrl);
             if(!res.ok) throw new Error('Proxy status ' + res.status);
             const data = await res.json();
-            
             const translatedFull = data[0].map(x => x[0]).join('');
             const translatedParts = translatedFull.split(separator.trim());
-            
-            for(let i=0; i < textNodes.length && i < translatedParts.length; i++) {
-                textNodes[i].textContent = translatedParts[i];
-            }
+            for(let i=0; i < textNodes.length && i < translatedParts.length; i++) textNodes[i].textContent = translatedParts[i];
             return tempDiv.innerHTML;
         } catch(e) {
-            console.warn("Translation failed", e);
-            return `<div style="color:#d32f2f; background:#ffebee; padding:10px; border-radius:8px;">Сбой перевода. <button onclick="retryTrans()" style="background:var(--red); color:white; border:none; padding:3px 8px; border-radius:4px;">Повторить</button></div>` + html;
+            console.warn("Trans failed", e);
+            return `<div style="color:#d32f2f">Ошибка сети.</div>` + html;
         }
     }
 
-    // --- POPUP WORD TRANSLATE ---
+    // --- POPUP ---
     const popup = document.getElementById('dict-popup');
-    
-    // Прикрепляем клик к панели оригинала
     document.getElementById('p1').addEventListener('click', async (e) => {
-        // Убираем старый попап при любом клике
         closePopup();
-
-        // Определяем, куда кликнули
-        let range;
-        let word = "";
-        
-        // Стандартный способ (Webkit/iOS)
-        if (document.caretRangeFromPoint) {
-            range = document.caretRangeFromPoint(e.clientX, e.clientY);
-        } else if (document.caretPositionFromPoint) {
-            // Firefox fallback
+        let range, word = "";
+        if (document.caretRangeFromPoint) range = document.caretRangeFromPoint(e.clientX, e.clientY);
+        else if (document.caretPositionFromPoint) {
             const pos = document.caretPositionFromPoint(e.clientX, e.clientY);
-            range = document.createRange();
-            range.setStart(pos.offsetNode, pos.offset);
-            range.collapse(true);
+            range = document.createRange(); range.setStart(pos.offsetNode, pos.offset); range.collapse(true);
         }
-
-        if (range && range.startContainer.nodeType === 3) { // 3 = TEXT_NODE
-            // Расширяем выбор до границ слова
+        if (range && range.startContainer.nodeType === 3) {
             range.expand('word');
             word = range.toString().trim();
-            
-            // Фильтр от пунктуации и пустоты
-            if (word.length > 0 && /[\wа-яА-ЯёЁ]/i.test(word)) {
-                showPopup(word, e.pageX, e.pageY);
-            }
+            if (word.length > 0 && /[\wа-яА-ЯёЁ]/i.test(word)) showPopup(word, e.pageX, e.pageY);
         }
     });
 
     async function showPopup(word, x, y) {
-        // Устанавливаем оригинал
         document.getElementById('dict-orig').innerText = word;
         document.getElementById('dict-res').innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-        
-        // Позиционируем (грубо)
         popup.style.display = 'block';
         
-        // Корректируем позицию чтобы не вылезало за экран
         let left = x - (popup.offsetWidth / 2);
-        let top = y - popup.offsetHeight - 15; // Над пальцем
-        
+        let top = y - popup.offsetHeight - 15;
         if (left < 10) left = 10;
         if (left + popup.offsetWidth > window.innerWidth) left = window.innerWidth - popup.offsetWidth - 10;
-        if (top < 10) top = y + 20; // Если сверху нет места, показать снизу
-        
-        popup.style.left = left + 'px';
-        popup.style.top = top + 'px';
+        if (top < 10) top = y + 20;
+        popup.style.left = left + 'px'; popup.style.top = top + 'px';
 
-        // Переводим слово
         const from = document.getElementById('lang-from').value;
         const to = document.getElementById('lang-to').value;
-        const trans = await translateSingleWord(word, from, to);
-        document.getElementById('dict-res').innerText = trans;
-    }
-
-    function closePopup() {
-        popup.style.display = 'none';
-    }
-
-    async function translateSingleWord(text, from, to) {
-        const targetUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
+        const targetUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(word)}`;
         const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+        
         try {
             const res = await fetch(proxyUrl);
             const data = await res.json();
-            return data[0][0][0];
-        } catch (e) {
-            return "Ошибка";
-        }
+            document.getElementById('dict-res').innerText = data[0][0][0];
+        } catch (e) { document.getElementById('dict-res').innerText = "Ошибка"; }
     }
+
+    function closePopup() { popup.style.display = 'none'; }
 
     function speakWord() {
         const word = document.getElementById('dict-orig').innerText;
         const from = document.getElementById('lang-from').value;
         
+        // Cancel previous
+        window.speechSynthesis.cancel();
+        
         const utterance = new SpeechSynthesisUtterance(word);
-        // Пытаемся угадать язык озвучки, если стоит Auto, ставим en
-        utterance.lang = from === 'auto' ? 'en' : from; 
+        utterance.lang = from === 'auto' ? 'en-US' : from; 
         window.speechSynthesis.speak(utterance);
     }
 
-    function retryTrans() {
-        const k = cur+'_t_'+document.getElementById('lang-to').value;
-        delete cache[k];
-        render();
-    }
-
-    // --- PARSERS (Standard) ---
+    // --- PARSERS (Populate rawParagraphs) ---
     async function parsePDF(buffer) {
         showLoader("PDF...");
         const pdf = await pdfjsLib.getDocument({data: buffer}).promise;
-        let fullText = "";
         for (let i = 1; i <= pdf.numPages; i++) {
             showLoader(`PDF: ${i}/${pdf.numPages}`);
             const page = await pdf.getPage(i);
             const textContent = await page.getTextContent();
             const pageText = textContent.items.map(item => item.str).join(' ');
-            if(pageText.trim()) fullText += `<p>${pageText}</p><hr style="border:0; border-bottom:1px dashed #ccc; margin:20px 0;">`;
+            if(pageText.trim()) rawParagraphs.push(`<p>${pageText}</p>`);
         }
-        chunkContent(fullText);
     }
     async function parseEPUB(buffer) {
         showLoader("EPUB...");
@@ -447,7 +469,6 @@
                 }
             }
         }
-        let fullHtml = "";
         const spineItems = spine.getElementsByTagName("itemref");
         for (let i = 0; i < spineItems.length; i++) {
             showLoader(`EPUB: Глава ${i+1}`);
@@ -463,32 +484,27 @@
                     chContent = chContent.replace(regex, `src="${blobUrl}"`);
                 }
                 const chDoc = parser.parseFromString(chContent, "text/html") || parser.parseFromString(chContent, "application/xhtml+xml");
-                if(chDoc.body) fullHtml += chDoc.body.innerHTML;
+                if(chDoc.body) extractParagraphs(chDoc.body);
             }
         }
-        chunkContent(fullHtml);
     }
-    function chunkContent(html) {
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = html.replace(/\s\s+/g, ' ');
-        let buf = "";
-        const walker = document.createTreeWalker(tempDiv, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    
+    function extractParagraphs(element) {
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
         let node;
         while(node = walker.nextNode()) {
             if(node.nodeType === 3) {
                 const txt = node.textContent.trim();
                 if(txt.length > 0) {
                     const pTag = node.parentElement.tagName;
-                    if(['P','DIV','H1','H2','H3','LI'].includes(pTag)) buf += `<p>${txt}</p>`;
-                    else buf += ` ${txt} `;
+                    if(['P','DIV','H1','H2','H3','LI'].includes(pTag)) rawParagraphs.push(`<p>${txt}</p>`);
                 }
             } else if (node.nodeType === 1 && node.tagName === 'IMG') {
-                buf += node.outerHTML;
+                rawParagraphs.push(node.outerHTML);
             }
-            if (buf.length > 1000) { pages.push(buf); buf = ""; }
         }
-        if(buf.length > 0) pages.push(buf);
     }
+
     function parseFB2(xml) {
         xml = xml.replace(/xmlns.*?=".*?"/g, ''); 
         const parser = new DOMParser();
@@ -499,58 +515,57 @@
         const body = doc.getElementsByTagName('body')[0];
         if(!body) { parseTXT(xml); return; }
         const all = body.getElementsByTagName('*');
-        let buf = "";
         for(let i=0; i<all.length; i++) {
             const el = all[i];
             const tag = el.tagName.toLowerCase();
             if(el.parentNode.tagName.toLowerCase() === 'p' || el.parentNode.tagName.toLowerCase() === 'title') continue;
-            if(tag === 'title') buf += `<h3>${el.textContent}</h3>`;
-            else if(tag === 'p') buf += `<p>${el.textContent}</p>`;
+            if(tag === 'title') rawParagraphs.push(`<h3>${el.textContent}</h3>`);
+            else if(tag === 'p') rawParagraphs.push(`<p>${el.textContent}</p>`);
             else if(tag === 'image') {
                 let h = el.getAttribute('l:href') || el.getAttribute('xlink:href') || el.getAttribute('href');
                 if(h && h.startsWith('#')) h = h.substring(1);
-                if(bins[h]) buf += `<img src="${bins[h]}">`;
+                if(bins[h]) rawParagraphs.push(`<img src="${bins[h]}">`);
             }
-            if(buf.length > 1000) { pages.push(buf); buf=""; }
         }
-        if(buf) pages.push(buf);
     }
+
     function parseTXT(t) {
-        let buf = "";
-        t.split('\n').forEach(l => { if(l.trim()) buf += `<p>${l}</p>`; if(buf.length > 1000) { pages.push(buf); buf=""; } });
-        if(buf) pages.push(buf);
+        t.split('\n').forEach(l => { if(l.trim()) rawParagraphs.push(`<p>${l}</p>`); });
     }
 
+    // --- RENDER ---
     const p1 = document.getElementById('p1'); const p2 = document.getElementById('p2');
-    function syncScroll(source, target) {
-        if(isSyncing) return; isSyncing = true;
-        const p = source.scrollTop / (source.scrollHeight - source.clientHeight);
-        target.scrollTop = p * (target.scrollHeight - target.clientHeight);
-        setTimeout(() => isSyncing = false, 50);
-    }
-    p1.addEventListener('scroll', () => syncScroll(p1, p2)); p2.addEventListener('scroll', () => syncScroll(p2, p1));
-
+    
     function render() {
-        const h = pages[cur] || "";
-        p1.innerHTML = h;
+        const pageData = pages[cur] || { left: "", right: "" };
+        p1.innerHTML = pageData.left;
         document.getElementById('lbl').innerText = `${cur+1}/${pages.length}`;
         p1.scrollTop = 0; p2.scrollTop = 0;
-        if(trans) {
-            const k = cur+'_t_'+document.getElementById('lang-to').value;
-            if(cache[k]) p2.innerHTML = cache[k];
-            else { 
-                p2.innerHTML = '<div style="padding:20px; color:#888; text-align:center"><i class="fas fa-spinner fa-spin"></i> Перевод (Google)...</div>';
-                const from = document.getElementById('lang-from').value;
-                const to = document.getElementById('lang-to').value;
-                googleTranslate(h, from, to).then(t => { cache[k] = t; p2.innerHTML = t; });
-            }
-        } else p2.innerHTML = "";
+        
+        if (isDualMode) {
+            // Встроенный режим: просто показываем готовый текст справа
+            p2.innerHTML = pageData.right;
+        } else {
+            // Google режим: проверяем транс
+            if(trans) {
+                const k = cur+'_t_'+document.getElementById('lang-to').value;
+                if(cache[k]) p2.innerHTML = cache[k];
+                else { 
+                    p2.innerHTML = '<div style="padding:20px; color:#888; text-align:center"><i class="fas fa-spinner fa-spin"></i> Перевод (Google)...</div>';
+                    const from = document.getElementById('lang-from').value;
+                    const to = document.getElementById('lang-to').value;
+                    googleTranslate(pageData.left, from, to).then(t => { cache[k] = t; p2.innerHTML = t; });
+                }
+            } else p2.innerHTML = "";
+        }
     }
 
     function nav(d) { if(cur+d>=0 && cur+d<pages.length) { cur+=d; render(); } }
     function toggleMenu() { document.getElementById('settings').classList.toggle('open'); }
     function closeBook() { document.getElementById('read-view').style.display='none'; document.getElementById('lib-view').style.display='block'; closePopup(); }
+    
     function toggleTrans() { 
+        if(isDualMode) return; // Locked in Dual Mode
         trans = !trans; 
         const btn = document.getElementById('btn-trans');
         btn.innerText = trans ? "Перевод: ON" : "Перевод: OFF";
@@ -558,6 +573,7 @@
         btn.style.color = trans ? 'white' : 'var(--accent)';
         render(); 
     }
+    
     function setLayout(m) {
         const s = document.getElementById('split');
         if(m==='v') s.classList.add('vertical'); else s.classList.remove('vertical');
@@ -598,7 +614,6 @@
         p1.style.flexBasis = pct+'%'; p2.style.flexBasis = (100-pct)+'%';
     }
     function onUp(e) { isResizing=false; rs.releasePointerCapture(e.pointerId); }
-    
     document.getElementById('handle').onclick = e => {
         e.stopPropagation(); hidden = !hidden;
         p2.style.display = hidden ? 'none' : 'block';
@@ -606,7 +621,7 @@
         const hdl = e.currentTarget;
         const splitContainer = document.getElementById('split');
         if(hidden) { hdl.innerHTML = '<i class="fas fa-chevron-left"></i>'; hdl.classList.remove('is-close'); splitContainer.classList.add('is-hidden'); }
-        else { hdl.innerHTML = '<i class="fas fa-times"></i>'; hdl.classList.add('is-close'); splitContainer.classList.remove('is-hidden'); syncScroll(p1, p2); }
+        else { hdl.innerHTML = '<i class="fas fa-times"></i>'; hdl.classList.add('is-close'); splitContainer.classList.remove('is-hidden'); }
     };
 </script>
 </body>
