@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Reader V12 (Sync)</title>
+    <title>Reader V13 (Smart Swipe)</title>
     
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -20,7 +20,6 @@
         /* LIBRARY */
         #lib-view { padding: 40px 20px 80px; height: 100%; overflow-y: auto; }
         
-        /* Library Settings Row */
         .lib-settings {
             background: var(--panel); padding: 15px; border-radius: 12px; margin-bottom: 20px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 10px;
@@ -29,7 +28,6 @@
         .lib-label { font-size: 13px; color: #666; font-weight: 500; }
         .lib-select { padding: 8px; border-radius: 8px; border: 1px solid #ddd; background: #f9f9f9; flex: 1; font-weight: bold; }
 
-        /* Upload Button */
         .upload-container { position: relative; width: 100%; height: 55px; margin-bottom: 20px; }
         .upload-visual {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -46,7 +44,6 @@
         }
         .book-card:active { background: #e5e5e5; transform: scale(0.98); }
 
-        /* LOADER */
         #loader { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(255,255,255,0.8); z-index: 2000; justify-content: center; align-items: center; }
         .spinner { width: 40px; height: 40px; border: 4px solid #ddd; border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -57,7 +54,9 @@
         
         .split { flex: 1; display: flex; overflow: hidden; position: relative; touch-action: none; }
         .split.vertical { flex-direction: column; }
-        .page { flex: 1; padding: 20px; overflow-y: auto; font-size: 17px; line-height: 1.6; -webkit-overflow-scrolling: touch; }
+        
+        /* Важно: overscroll-behavior: none предотвращает "резинку" при скролле до конца */
+        .page { flex: 1; padding: 20px; overflow-y: auto; font-size: 17px; line-height: 1.6; -webkit-overflow-scrolling: touch; overscroll-behavior: none; }
         .page img { max-width: 100%; border-radius: 8px; margin: 10px auto; display: block; }
 
         .resizer { background: #ddd; z-index: 100; display: flex; justify-content: center; align-items: center; }
@@ -71,12 +70,13 @@
         /* MENU */
         #settings {
             position: absolute; top: 80px; left: 0; width: 100%; background: white; padding: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.15); transform: translateY(-200%); transition: 0.3s; z-index: 999; border-bottom: 1px solid #eee;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15); transform: translateY(-200%); transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 999; border-bottom: 1px solid #eee;
         }
         #settings.open { transform: translateY(0); }
         .row { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; }
         .label { font-size: 12px; color: #888; width: 100%; margin-bottom: 5px; }
         select, button { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; background: white; height: 40px; }
+        button.active { background: var(--accent); color: white; border-color: var(--accent); }
         input[type=range] { width: 100%; height: 5px; border-radius: 5px; background: #d3d3d3; outline: none; }
     </style>
 </head>
@@ -127,7 +127,7 @@
             <i class="fas fa-arrow-right" style="color:#ccc"></i>
             <select id="lang-to"><option value="ru">RU</option><option value="en">EN</option><option value="uk">UK</option><option value="kk">KK</option></select>
         </div>
-        <div class="row"><button onclick="setLayout('h')">|| Верт</button><button onclick="setLayout('v')">= Гориз</button></div>
+        <div class="row"><button onclick="setLayout('h')" id="btn-h">|| Верт</button><button onclick="setLayout('v')" id="btn-v">= Гориз</button></div>
         <div class="row">
             <select id="font-family" onchange="updateStyle()"><option value="-apple-system, sans-serif">System</option><option value="'Georgia', serif">Serif</option><option value="'Courier New', monospace">Mono</option></select>
             <button onclick="toggleBold()" id="btn-bold" style="flex:0 0 50px; font-weight:bold">B</button>
@@ -159,10 +159,10 @@
 
     let db, pages=[], cur=0, trans=false, hidden=false, cache={};
     let isBold = false;
-    let isSyncing = false; // Flag for scroll sync
+    let isSyncing = false;
 
-    // --- DB INIT & PREFS ---
-    const req = indexedDB.open("ReaderV12", 1);
+    // --- DB INIT ---
+    const req = indexedDB.open("ReaderV13", 1);
     req.onupgradeneeded = e => { db=e.target.result; db.createObjectStore("books",{keyPath:"id",autoIncrement:true}); };
     req.onsuccess = e => { db=e.target.result; loadLib(); restoreLibSettings(); };
 
@@ -220,7 +220,6 @@
         document.getElementById('read-view').style.display='flex';
         txt = txt.replace(/xmlns.*?=".*?"/g, ''); 
         
-        // Sync Library Settings to Reader Settings
         document.getElementById('lang-from').value = document.getElementById('lib-from').value;
         document.getElementById('lang-to').value = document.getElementById('lib-to').value;
 
@@ -267,33 +266,25 @@
         if(buf) pages.push(buf);
     }
 
-    // --- SYNC SCROLL LOGIC ---
+    // --- SYNC SCROLL ---
     const p1 = document.getElementById('p1');
     const p2 = document.getElementById('p2');
-
     function syncScroll(source, target) {
         if(isSyncing) return;
         isSyncing = true;
-        
-        // Calculate percentage
         const p = source.scrollTop / (source.scrollHeight - source.clientHeight);
-        // Apply to target
         target.scrollTop = p * (target.scrollHeight - target.clientHeight);
-        
-        setTimeout(() => isSyncing = false, 50); // Debounce to prevent recursion
+        setTimeout(() => isSyncing = false, 50);
     }
-
     p1.addEventListener('scroll', () => syncScroll(p1, p2));
     p2.addEventListener('scroll', () => syncScroll(p2, p1));
-
 
     // --- UI ---
     function render() {
         const h = pages[cur] || "";
         p1.innerHTML = h;
         document.getElementById('lbl').innerText = `${cur+1}/${pages.length}`;
-        p1.scrollTop = 0;
-        p2.scrollTop = 0;
+        p1.scrollTop = 0; p2.scrollTop = 0;
         
         if(trans) {
             const k = cur+'_t';
@@ -337,16 +328,31 @@
         updateStyle();
     }
 
-    // --- SWIPE & RESIZE ---
-    let touchStart = 0;
+    // --- SMART SWIPE (FIXED) ---
+    let touchStartX = 0;
+    let touchStartY = 0;
     const splitEl = document.getElementById('split');
-    splitEl.addEventListener('touchstart', e => { touchStart = e.changedTouches[0].clientX; }, {passive: true});
+
+    splitEl.addEventListener('touchstart', e => {
+        touchStartX = e.changedTouches[0].clientX;
+        touchStartY = e.changedTouches[0].clientY;
+    }, {passive: true});
+
     splitEl.addEventListener('touchend', e => {
         if(isResizing) return;
-        const diff = touchStart - e.changedTouches[0].clientX;
-        if(Math.abs(diff) > 50) { if(diff > 0) nav(1); else nav(-1); }
+        const touchEndX = e.changedTouches[0].clientX;
+        const touchEndY = e.changedTouches[0].clientY;
+        const diffX = touchStartX - touchEndX;
+        const diffY = touchStartY - touchEndY;
+
+        // Если движение по горизонтали больше чем по вертикали (чтобы исключить скролл)
+        if(Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY)) {
+            if(diffX > 0) nav(1); // Влево -> След
+            else nav(-1);         // Вправо -> Пред
+        }
     });
 
+    // --- RESIZER ---
     const rs = document.getElementById('resizer');
     const sc = document.getElementById('split');
     let isResizing = false;
@@ -371,7 +377,6 @@
         p2.style.display = hidden ? 'none' : 'block';
         p1.style.flexBasis = hidden ? '100%' : '50%';
         e.currentTarget.innerHTML = hidden ? '<i class="fas fa-chevron-left"></i>' : '<i class="fas fa-times"></i>';
-        // Force sync update if showing again
         if(!hidden) syncScroll(p1, p2);
     };
 </script>
