@@ -3,565 +3,357 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Reader Pro v5.2 (iOS Fix)</title>
+    <title>Reader Pro v6.0 (Brute Force)</title>
 
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Reader">
     <link rel="manifest" id="manifest-placeholder">
-    <link rel="apple-touch-icon" href="https://img.icons8.com/ios-filled/180/007AFF/open-book.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
     <style>
         :root {
-            --bg-color: #f2f2f7;
-            --text-color: #000000;
-            --panel-bg: #ffffff;
-            --accent: #007AFF;
-            --border: #c6c6c8;
-            --resizer-bg: #e5e5ea;
-            --safe-top: env(safe-area-inset-top, 20px);
-            --safe-bottom: env(safe-area-inset-bottom, 20px);
+            --bg-color: #f2f2f7; --text-color: #000; --panel-bg: #fff; --accent: #007AFF;
+            --safe-top: env(safe-area-inset-top, 20px); --safe-bottom: env(safe-area-inset-bottom, 20px);
         }
-
-        body.dark-mode {
-            --bg-color: #000000;
-            --text-color: #d1d1d6;
-            --panel-bg: #1c1c1e;
-            --border: #38383a;
-            --resizer-bg: #2c2c2e;
-        }
-
+        body.dark-mode { --bg-color: #000; --text-color: #d1d1d6; --panel-bg: #1c1c1e; }
+        body { margin: 0; font-family: -apple-system, sans-serif; background: var(--bg-color); color: var(--text-color); height: 100vh; display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: none; }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
-        body {
-            margin: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background: var(--bg-color);
-            color: var(--text-color);
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            overscroll-behavior: none;
-        }
+        /* UI */
+        select, button, input[type="range"] { background: var(--panel-bg); border: 1px solid #c6c6c8; color: var(--text-color); border-radius: 10px; font-size: 14px; outline: none; }
+        .dark-mode select, .dark-mode button { border-color: #38383a; }
 
-        select, button, input[type="range"] {
-            background: var(--panel-bg);
-            border: 1px solid var(--border);
-            color: var(--text-color);
-            border-radius: 10px;
-            outline: none;
-            font-size: 14px;
-        }
-
-        /* --- LIBRARY --- */
-        #library-view {
-            padding: calc(var(--safe-top) + 20px) 20px var(--safe-bottom);
-            overflow-y: auto;
-            height: 100%;
-            display: block;
-        }
-
-        .book-card {
-            background: var(--panel-bg);
-            padding: 16px;
-            margin-bottom: 12px;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            cursor: pointer;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            border: 1px solid transparent;
-        }
-        .dark-mode .book-card { border-color: var(--border); }
-
-        .upload-wrapper {
-            display: flex; justify-content: center; align-items: center; width: 100%; padding: 16px;
-            background: var(--accent); color: white; border-radius: 14px; margin-bottom: 30px;
-            font-weight: 600; font-size: 17px; box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
-            position: relative; cursor: pointer; text-align: center;
-        }
-
-        .upload-wrapper input[type="file"] {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 10;
-        }
+        #library-view { padding: calc(var(--safe-top) + 20px) 20px var(--safe-bottom); overflow-y: auto; height: 100%; }
+        .book-card { background: var(--panel-bg); padding: 16px; margin-bottom: 12px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer; }
         
-        .upload-wrapper:active { transform: scale(0.98); }
-
-        /* --- READER --- */
-        #reader-view {
-            display: none; flex-direction: column; height: 100%; position: relative; background: var(--panel-bg);
+        /* IOS FILE INPUT HACK */
+        .upload-wrapper {
+            display: flex; justify-content: center; align-items: center; width: 100%; padding: 18px;
+            background: var(--accent); color: white; border-radius: 14px; margin-bottom: 30px; font-weight: 600;
+            position: relative; text-align: center;
         }
+        .upload-wrapper input { position: absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer; }
 
-        .top-bar {
-            padding-top: var(--safe-top); height: calc(44px + var(--safe-top)); background: var(--panel-bg);
-            border-bottom: 1px solid var(--border); display: flex; justify-content: center; align-items: center;
-            z-index: 1000; flex-shrink: 0;
-        }
+        /* READER */
+        #reader-view { display: none; flex-direction: column; height: 100%; background: var(--panel-bg); }
+        .top-bar { padding-top: var(--safe-top); height: calc(44px + var(--safe-top)); border-bottom: 1px solid #eee; display: flex; justify-content: center; align-items: center; z-index: 1000; background: var(--panel-bg); }
+        .dark-mode .top-bar { border-color: #333; }
+        
+        .menu-btn { background: var(--bg-color); padding: 6px 16px; border-radius: 20px; font-weight: 500; font-size: 14px; }
 
-        .menu-trigger {
-            background: var(--bg-color); padding: 6px 16px; border-radius: 100px; font-size: 14px; font-weight: 500;
-            display: flex; align-items: center; gap: 6px; cursor: pointer;
-        }
-
-        /* --- SETTINGS --- */
-        #settings-panel {
-            position: absolute; top: calc(44px + var(--safe-top)); left: 0; width: 100%; background: var(--panel-bg);
-            padding: 20px; border-radius: 0 0 20px 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-            transform: translateY(-150%); transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
-            z-index: 999; display: flex; flex-direction: column; gap: 16px;
-        }
+        /* SETTINGS */
+        #settings-panel { position: absolute; top: calc(44px + var(--safe-top)); left:0; width:100%; background: var(--panel-bg); padding: 20px; transform: translateY(-150%); transition: 0.3s; z-index: 999; box-shadow: 0 10px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column; gap: 15px; }
         #settings-panel.open { transform: translateY(0); }
-        .settings-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-        .full-width-btn { width: 100%; padding: 14px; font-weight: 600; font-size: 15px; border: none;}
-        .active-btn { background: var(--accent); color: white; }
-        .lang-group { display: flex; align-items: center; gap: 8px; flex: 1; }
-        .lang-group select { flex: 1; padding: 10px; text-align: center; font-weight: 600; -webkit-appearance: none; }
+        .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        
+        /* SPLIT */
+        .split { flex: 1; display: flex; overflow: hidden; position: relative; }
+        .split.vertical { flex-direction: column; }
+        .panel { flex: 1; padding: 20px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+        
+        .resizer { background: #ddd; z-index: 100; display: flex; justify-content: center; align-items: center; touch-action: none; }
+        .dark-mode .resizer { background: #333; }
+        .split:not(.vertical) .resizer { width: 24px; margin: 0 -12px; cursor: col-resize; }
+        .split.vertical .resizer { height: 24px; margin: -12px 0; cursor: row-resize; }
+        .resizer-handle { width: 30px; height: 30px; background: var(--accent); border-radius: 50%; color: white; display: flex; justify-content: center; align-items: center; font-size: 12px; border: 2px solid #fff; pointer-events: auto; }
 
-        /* --- SPLIT --- */
-        .split-container {
-            flex: 1; display: flex; overflow: hidden; position: relative; touch-action: none;
-        }
-        .split-container.vertical { flex-direction: column; }
+        /* TEXT */
+        .text-content { line-height: 1.6; font-size: 17px; text-align: justify; }
+        .text-content p { margin-bottom: 10px; }
+        .text-content img { max-width: 100%; display: block; margin: 10px auto; border-radius: 8px; }
+        .debug-err { color: red; padding: 20px; text-align: center; border: 1px dashed red; margin: 20px; }
 
-        .page-panel {
-            flex-basis: 50%; padding: 20px 20px 60px 20px; overflow-y: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
-        }
-        .page-panel::-webkit-scrollbar { display: none; }
-
-        /* --- RESIZER --- */
-        .resizer {
-            background-color: var(--resizer-bg); z-index: 100; display: flex; justify-content: center; align-items: center;
-            touch-action: none; user-select: none;
-        }
-        .split-container:not(.vertical) .resizer { width: 20px; margin: 0 -10px; cursor: col-resize; }
-        .split-container.vertical .resizer { height: 20px; margin: -10px 0; cursor: row-resize; }
-        .resizer-line { background: #bbb; border-radius: 2px; pointer-events: none; }
-        .split-container:not(.vertical) .resizer-line { width: 4px; height: 30px; }
-        .split-container.vertical .resizer-line { width: 30px; height: 4px; }
-        .resizer-btn {
-            width: 28px; height: 28px; background: var(--accent); border-radius: 50%; color: white;
-            border: 2px solid white; font-size: 12px; display: flex; justify-content: center; align-items: center;
-            position: absolute; z-index: 102; pointer-events: auto; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-        }
-
-        /* --- CONTENT --- */
-        .content-text { line-height: 1.65; text-align: justify; font-size: 17px; }
-        .content-text p { margin-bottom: 0.8em; margin-top: 0; }
-        .content-text h3 { margin-top: 1.5em; margin-bottom: 0.5em; color: var(--accent); }
-        .content-text img { max-width: 100%; height: auto; border-radius: 8px; margin: 10px 0; display: block; }
-
-        /* --- NAV --- */
-        .bottom-nav {
-            height: calc(50px + var(--safe-bottom)); padding-bottom: var(--safe-bottom); background: var(--panel-bg);
-            border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;
-            padding-left: 20px; padding-right: 20px; flex-shrink: 0; z-index: 1000;
-        }
-        .nav-btn { width: 44px; height: 44px; display: flex; justify-content: center; align-items: center; font-size: 20px; color: var(--accent); border: none; background: transparent; }
-        .page-indicator { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 15px; color: #8e8e93; }
-
+        /* NAV */
+        .nav { height: calc(50px + var(--safe-bottom)); padding-bottom: var(--safe-bottom); border-top: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; padding: 0 20px; background: var(--panel-bg); z-index: 1000; }
+        .dark-mode .nav { border-color: #333; }
+        .nav-btn { font-size: 24px; color: var(--accent); background: transparent; border: none; padding: 10px; }
     </style>
 </head>
 <body>
 
-    <div id="library-view">
-        <h1 style="margin-top:10px; margin-bottom: 20px;">Мои Книги</h1>
+<div id="library-view">
+    <h1 style="margin: 20px 0;">Библиотека</h1>
+    <label class="upload-wrapper">
+        <i class="fas fa-plus"></i>&nbsp; Выбрать файл
+        <input type="file" id="file-input"> 
+    </label>
+    <div id="book-list"></div>
+</div>
+
+<div id="reader-view">
+    <div class="top-bar">
+        <div class="menu-btn" onclick="toggleMenu()"><i class="fas fa-cog"></i> Настройки</div>
+    </div>
+
+    <div id="settings-panel">
+        <div class="row">
+            <select id="l-from"><option value="en">EN</option><option value="ru">RU</option><option value="de">DE</option></select>
+            <i class="fas fa-arrow-right"></i>
+            <select id="l-to"><option value="ru">RU</option><option value="en">EN</option></select>
+        </div>
+        <button onclick="toggleTrans()" id="btn-trans" style="padding: 12px; font-weight: bold;">Включить перевод</button>
+        <div class="row">
+            <select id="s-mode" onchange="updLayout()" style="flex:1"><option value="h">|| Верт</option><option value="v">= Гориз</option></select>
+            <select id="s-font" onchange="updStyle()" style="flex:1"><option value="sans-serif">Sans</option><option value="serif">Serif</option></select>
+        </div>
+        <div class="row">
+            <span>Размер</span>
+            <input type="range" id="s-size" min="12" max="32" value="17" oninput="updStyle()">
+        </div>
+        <button onclick="closeBook()" style="background: #ff3b30; color: white; padding: 12px;">Закрыть</button>
+    </div>
+
+    <div class="split" id="split-cont">
+        <div class="panel" id="p-orig"><div class="text-content" id="t-orig"></div></div>
         
-        <label class="upload-wrapper">
-            <i class="fas fa-plus"></i>&nbsp; Добавить книгу
-            <input type="file" id="file-input">
-        </label>
-
-        <div id="book-list"></div>
+        <div class="resizer" id="resizer">
+            <div class="resizer-handle" id="resizer-btn"><i class="fas fa-times"></i></div>
+        </div>
+        
+        <div class="panel" id="p-trans"><div class="text-content" id="t-trans" style="color:#666"></div></div>
     </div>
 
-    <div id="reader-view">
-        <div class="top-bar">
-            <div class="menu-trigger" onclick="toggleMenu()">
-                <i class="fas fa-font"></i>&nbsp; Настройки
-            </div>
-        </div>
-
-        <div id="settings-panel">
-            <div class="settings-row">
-                <div class="lang-group">
-                    <select id="lang-from" onchange="resetTranslation()"><option value="en">EN</option><option value="ru">RU</option><option value="de">DE</option><option value="zh">CN</option></select>
-                    <i class="fas fa-arrow-right" style="color:#aaa; font-size:12px"></i>
-                    <select id="lang-to" onchange="resetTranslation()"><option value="ru">RU</option><option value="en">EN</option><option value="de">DE</option><option value="zh">CN</option></select>
-                </div>
-            </div>
-            <button class="full-width-btn" id="btn-trans" onclick="toggleTranslateState()">Включить перевод</button>
-            <div class="settings-row">
-                <span style="color:#666">Экран</span>
-                <select id="split-mode" onchange="updateLayout()" style="width: 150px;">
-                    <option value="horizontal">|| Вертикально</option>
-                    <option value="vertical">= Горизонтально</option>
-                </select>
-            </div>
-            <div class="settings-row">
-                <select id="font-family" onchange="updateStyle()" style="flex:1;">
-                    <option value="-apple-system, sans-serif">San Francisco</option>
-                    <option value="'Georgia', serif">Serif</option>
-                    <option value="'Courier New', monospace">Mono</option>
-                </select>
-                <button id="btn-bold" onclick="toggleBold()" style="padding:10px 15px; font-weight:bold;">B</button>
-            </div>
-            <div class="settings-row" style="flex-direction: column; align-items: flex-start;">
-                <div style="display:flex; justify-content:space-between; width:100%; font-size:13px; color:#888; margin-bottom:5px;">
-                    <span>Размер</span><span id="font-val-disp">17px</span>
-                </div>
-                <input type="range" id="font-size" min="14" max="36" value="17" oninput="updateStyle()" style="width:100%">
-            </div>
-            <button class="full-width-btn" onclick="closeBook()" style="background:#ff3b30; color:white; margin-top:10px;">Закрыть книгу</button>
-        </div>
-
-        <div class="split-container" id="split-container">
-            <div class="page-panel" id="panel-orig">
-                <div class="content-text" id="text-orig"></div>
-            </div>
-
-            <div class="resizer" id="resizer">
-                <div class="resizer-line"></div>
-                <div class="resizer-btn" id="resizer-btn"><i class="fas fa-times"></i></div>
-            </div>
-
-            <div class="page-panel" id="panel-trans">
-                <div class="content-text" id="text-trans" style="color:#666"></div>
-            </div>
-        </div>
-
-        <div class="bottom-nav">
-            <button class="nav-btn" onclick="prevPage()"><i class="fas fa-chevron-left"></i></button>
-            <span class="page-indicator" id="page-counter">1 из 1</span>
-            <button class="nav-btn" onclick="nextPage()"><i class="fas fa-chevron-right"></i></button>
-        </div>
+    <div class="nav">
+        <button class="nav-btn" onclick="nav(-1)"><i class="fas fa-chevron-left"></i></button>
+        <span id="pg-lbl" style="font-weight: 600; color:#888">0/0</span>
+        <button class="nav-btn" onclick="nav(1)"><i class="fas fa-chevron-right"></i></button>
     </div>
+</div>
 
-    <script>
-        // --- MANIFEST ---
-        const manifest = { "name": "Reader Pro", "short_name": "Reader", "start_url": ".", "display": "standalone", "background_color": "#f2f2f7", "theme_color": "#007AFF", "icons": [{ "src": "https://img.icons8.com/ios-filled/192/007AFF/open-book.png", "sizes": "192x192", "type": "image/png" }] };
-        const blob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
-        document.getElementById('manifest-placeholder').setAttribute('href', URL.createObjectURL(blob));
+<script>
+    // --- MANIFEST SETUP ---
+    const m = { "name":"Reader", "display":"standalone", "theme_color":"#007AFF", "icons":[{ "src":"https://img.icons8.com/ios-filled/192/007AFF/open-book.png", "sizes":"192x192", "type":"image/png" }] };
+    document.getElementById('manifest-placeholder').setAttribute('href', URL.createObjectURL(new Blob([JSON.stringify(m)], {type: 'application/json'})));
 
-        // --- CORE ---
-        let db;
-        let pages = [];
-        let curPage = 0;
-        let isTransActive = false;
-        let isBold = false;
-        let touchStartX = 0;
-        let isTranslationHidden = false;
-        const cache = {};
+    // --- STATE ---
+    let db, pages=[], cur=0, trans=false, hidden=false, cache={};
+    
+    // --- DB INIT ---
+    const req = indexedDB.open("ReaderV6", 1);
+    req.onupgradeneeded = e => { db = e.target.result; if(!db.objectStoreNames.contains("books")) db.createObjectStore("books", {keyPath:"id", autoIncrement:true}); };
+    req.onsuccess = e => { db = e.target.result; loadLib(); };
 
-        // Resizer
-        const resizer = document.getElementById('resizer');
-        const resizerBtn = document.getElementById('resizer-btn');
-        const splitContainer = document.getElementById('split-container');
-        const panelOrig = document.getElementById('panel-orig');
-        const panelTrans = document.getElementById('panel-trans');
-        let isResizing = false;
+    // --- FILE INPUT (ARRAY BUFFER FOR ENCODING FIX) ---
+    document.getElementById('file-input').addEventListener('change', function(e) {
+        const f = e.target.files[0];
+        if(!f) return;
+        
+        const reader = new FileReader();
+        reader.readAsArrayBuffer(f); // Читаем как байты, чтобы определить кодировку
+        
+        reader.onload = ev => {
+            const buffer = ev.target.result;
+            // 1. Пробуем декодировать как UTF-8 и ищем заголовок кодировки
+            let decoder = new TextDecoder('utf-8');
+            let text = decoder.decode(buffer);
+            
+            // Если в начале файла явно написано windows-1251, перечитываем
+            if (text.slice(0, 500).toLowerCase().includes('windows-1251')) {
+                console.log("Detected Windows-1251");
+                decoder = new TextDecoder('windows-1251');
+                text = decoder.decode(buffer);
+            }
 
-        // DB
-        const req = indexedDB.open("ReaderProV5_2", 1);
-        req.onupgradeneeded = e => {
-            db = e.target.result;
-            if(!db.objectStoreNames.contains("books")) db.createObjectStore("books", {keyPath:"id", autoIncrement:true});
+            const tx = db.transaction("books", "readwrite");
+            tx.objectStore("books").add({ name: f.name, content: text });
+            tx.oncomplete = loadLib;
+            this.value = '';
         };
-        req.onsuccess = e => { db = e.target.result; loadLib(); };
+    });
 
-        // File Input
-        const fileInput = document.getElementById('file-input');
-        fileInput.addEventListener('change', e => {
-            const f = e.target.files[0];
-            if(!f) return;
-            const ext = f.name.split('.').pop().toLowerCase();
-            const r = new FileReader();
-            r.onload = ev => {
-                const tx = db.transaction("books", "readwrite");
-                tx.objectStore("books").add({ name: f.name, type: ext, content: ev.target.result });
-                tx.oncomplete = loadLib;
-                fileInput.value = ''; 
-            };
-            r.readAsText(f);
-        });
+    function loadLib() {
+        const l = document.getElementById('book-list'); l.innerHTML = '';
+        db.transaction("books").objectStore("books").openCursor().onsuccess = e => {
+            const c = e.target.result;
+            if(c) {
+                const d = document.createElement('div'); d.className = 'book-card';
+                d.innerHTML = `<b>${c.value.name}</b> <i class="fas fa-chevron-right" style="color:#ccc"></i>`;
+                d.onclick = () => openBook(c.value);
+                l.appendChild(d);
+                c.continue();
+            }
+        };
+    }
 
-        function loadLib() {
-            const list = document.getElementById('book-list');
-            list.innerHTML = '';
-            const tx = db.transaction("books", "readonly");
-            tx.objectStore("books").openCursor().onsuccess = e => {
-                const c = e.target.result;
-                if(c) {
-                    const el = document.createElement('div');
-                    el.className = 'book-card';
-                    el.innerHTML = `<div style="display:flex; align-items:center; gap:10px;"><i class="fas fa-book" style="color:#007AFF"></i> <b>${c.value.name}</b></div><i class="fas fa-chevron-right" style="color:#c7c7cc"></i>`;
-                    el.onclick = () => openBook(c.value);
-                    list.appendChild(el);
-                    c.continue();
+    function openBook(book) {
+        document.getElementById('library-view').style.display = 'none';
+        document.getElementById('reader-view').style.display = 'flex';
+        
+        // ЗАПУСК BRUTE FORCE ПАРСЕРА
+        pages = parseBruteForce(book.content);
+        
+        if (pages.length === 0) {
+            pages = ["<div class='debug-err'>Не удалось найти текст.<br>Возможно, файл поврежден или это картинка-PDF.<br>Попробуйте FB2 или TXT.</div>"];
+        }
+
+        cur = 0; render();
+        document.getElementById('settings-panel').classList.remove('open');
+    }
+
+    function closeBook() {
+        document.getElementById('reader-view').style.display = 'none';
+        document.getElementById('library-view').style.display = 'block';
+    }
+
+    // --- BRUTE FORCE REGEX PARSER (IOS SAFE) ---
+    function parseBruteForce(txt) {
+        const res = [];
+        let buf = "";
+        
+        // 1. Extract Images (Binaries)
+        // Ищем блоки <binary id="...">base64</binary>
+        const binaries = {};
+        const binRegex = /<binary\s+[^>]*id=["']([^"']+)["'][^>]*>([\s\S]*?)<\/binary>/gi;
+        let binMatch;
+        while ((binMatch = binRegex.exec(txt)) !== null) {
+            const id = binMatch[1];
+            const data = binMatch[2].trim();
+            binaries[id] = `data:image/jpeg;base64,${data}`; // Предполагаем jpeg/png
+        }
+
+        // 2. Extract Body Content using Regex (Ignoring XML structure)
+        // Ищем <p>, <title>, <image>, <empty-line>
+        // Регулярка ищет теги и захватывает их содержимое или атрибуты
+        const tagRegex = /<(p|title|image|img|empty-line)[^>]*>(.*?)<\/\1>|<(image|img|empty-line)[^>]*\/>/gis;
+        
+        // Упрощенный проход: разбиваем текст на теги
+        // Для надежности просто найдем все вхождения <p>...</p> и заголовков
+        
+        // a) Заголовки
+        // b) Параграфы
+        // c) Картинки
+        // Чтобы сохранить порядок, идем по тексту последовательно
+        
+        const tokenRegex = /<(title|p)[^>]*>([\s\S]*?)<\/\1>|<(image|img)[^>]*l:href=["']#?([^"']+)["'][^>]*\/?>|<(empty-line)\/>/gi;
+        
+        let match;
+        while ((match = tokenRegex.exec(txt)) !== null) {
+            const tag = match[1] || match[3] || match[5]; // title/p OR image/img OR empty-line
+            
+            if (tag === 'title') {
+                buf += `<h3>${stripTags(match[2])}</h3>`;
+            } else if (tag === 'p') {
+                buf += `<p>${stripTags(match[2])}</p>`;
+            } else if (tag === 'image' || tag === 'img') {
+                const id = match[4]; // href ID
+                if (binaries[id]) {
+                    buf += `<img src="${binaries[id]}">`;
                 }
-            };
-        }
-
-        function openBook(book) {
-            document.getElementById('library-view').style.display = 'none';
-            document.getElementById('reader-view').style.display = 'flex';
-            
-            pages = [];
-            // Универсальная проверка и запуск парсера
-            if(book.content.includes('<FictionBook') || book.type === 'fb2' || book.content.trim().startsWith('<')) {
-                parseFB2_Universal(book.content);
-            } else {
-                parseTXT(book.content);
+            } else if (tag === 'empty-line') {
+                buf += `<br>`;
             }
 
-            // Fallback если парсер ничего не нашел
-            if(pages.length === 0) {
-                 pages.push("<p style='text-align:center; margin-top:50px'>Не удалось распознать формат текста.<br>Попробуйте открыть файл в блокноте и пересохранить в UTF-8.</p>");
+            if (buf.length > 1500) {
+                res.push(buf);
+                buf = "";
             }
-
-            curPage = 0;
-            panelOrig.style.flexBasis = '50%'; panelTrans.style.flexBasis = '50%';
-            panelTrans.style.display = 'block'; isTranslationHidden = false;
-            updateResizerBtnIcon();
-            
-            render();
-            document.getElementById('settings-panel').classList.remove('open');
         }
 
-        function closeBook() {
-            document.getElementById('reader-view').style.display = 'none';
-            document.getElementById('library-view').style.display = 'block';
-            document.getElementById('settings-panel').classList.remove('open');
-        }
-
-        // --- PARSERS (IOS FIXED) ---
-        function parseTXT(txt) {
-            let buf = "";
-            txt.split('\n').forEach(l => {
+        // Если регулярка не сработала (например, простой TXT), бьем по строкам
+        if (res.length === 0 && buf.length === 0) {
+            const lines = txt.split('\n');
+            lines.forEach(l => {
                 if(l.trim()) buf += `<p>${l}</p>`;
-                if(buf.length > 1500) { pages.push(buf); buf = ""; }
-            });
-            if(buf) pages.push(buf);
-        }
-
-        // ПОЛНОСТЬЮ ПЕРЕПИСАННЫЙ FB2 ПАРСЕР ДЛЯ SAFARI
-        function parseFB2_Universal(xmlString) {
-            try {
-                // 1. Очистка XML от мусора перед парсингом (Safari это не любит)
-                xmlString = xmlString.trim();
-                
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(xmlString, "text/xml");
-
-                // Проверка на ошибки парсинга
-                const parserError = doc.getElementsByTagName("parsererror");
-                if (parserError.length > 0) {
-                    throw new Error("XML Parse Error");
-                }
-
-                // 2. Извлекаем картинки (используем getElementsByTagName, он игнорирует namespaces)
-                const bins = {};
-                const binaryNodes = doc.getElementsByTagName('binary');
-                for (let i = 0; i < binaryNodes.length; i++) {
-                    const node = binaryNodes[i];
-                    const id = node.getAttribute('id');
-                    const type = node.getAttribute('content-type');
-                    if (id && node.textContent) {
-                        bins[id] = `data:${type};base64,${node.textContent.trim()}`;
-                    }
-                }
-
-                // 3. Ищем BODY. В Safari querySelector может не найти body из-за namespace.
-                let body = doc.getElementsByTagName('body')[0];
-                if (!body) throw new Error("No body found");
-
-                // 4. Проходим по всем элементам внутри body "вручную"
-                // Это самый надежный способ для iOS
-                const allElements = body.getElementsByTagName('*');
-                
-                let buf = "";
-                const CHARS_LIMIT = 1200;
-
-                for (let i = 0; i < allElements.length; i++) {
-                    const el = allElements[i];
-                    const tag = el.nodeName.toLowerCase(); // nodeName надежнее tagName в XML
-
-                    // Обработка заголовков
-                    if (tag === 'title') {
-                        // Часто title содержит внутри p. Берем просто текст.
-                        if (el.textContent.trim()) {
-                            buf += `<h3>${el.textContent.trim()}</h3>`;
-                        }
-                    }
-                    // Обработка параграфов (p)
-                    else if (tag === 'p') {
-                        // Пропускаем p, если он внутри title (мы его уже обработали выше или обработаем как title)
-                        if (el.parentNode.nodeName.toLowerCase() !== 'title') {
-                             buf += `<p>${el.textContent}</p>`;
-                        }
-                    }
-                    // Обработка картинок (image)
-                    else if (tag === 'image' || tag === 'img') {
-                        // В FB2 ссылка может быть l:href или xlink:href. Safari тупит с атрибутами.
-                        let href = el.getAttribute('l:href') || el.getAttribute('xlink:href') || el.getAttribute('href');
-                        
-                        if (href) {
-                            if(href.startsWith('#')) href = href.substring(1);
-                            if (bins[href]) {
-                                buf += `<img src="${bins[href]}">`;
-                            }
-                        }
-                    }
-                    // Обработка пустых строк
-                    else if (tag === 'empty-line') {
-                        buf += `<br>`;
-                    }
-
-                    // Разбивка на страницы
-                    if (buf.length > CHARS_LIMIT) {
-                        pages.push(buf);
-                        buf = "";
-                    }
-                }
-                
-                if (buf) pages.push(buf);
-
-            } catch (e) {
-                console.error("FB2 Parse Failed, switching to TXT fallback", e);
-                // Если XML сломан, пробуем прочитать как обычный текст, вырезая теги
-                const textOnly = xmlString.replace(/<[^>]*>/g, "\n");
-                parseTXT(textOnly);
-            }
-        }
-
-        // --- RENDER ---
-        async function render() {
-            const html = pages[curPage] || "";
-            document.getElementById('text-orig').innerHTML = html;
-            document.getElementById('page-counter').innerText = `${curPage + 1} из ${pages.length}`;
-            
-            const transDiv = document.getElementById('text-trans');
-            if(isTransActive) {
-                const from = document.getElementById('lang-from').value;
-                const to = document.getElementById('lang-to').value;
-                const key = `${curPage}_${from}_${to}`;
-                if(cache[key]) {
-                    transDiv.innerHTML = cache[key];
-                } else {
-                    transDiv.innerHTML = "<i>Перевод...</i>";
-                    const txt = await mockAPI(html, from, to);
-                    cache[key] = txt;
-                    transDiv.innerHTML = txt;
-                }
-            } else {
-                transDiv.innerHTML = `<div style="text-align:center; padding-top:40%; opacity:0.3">Нажмите «Включить перевод»</div>`;
-            }
-            document.getElementById('panel-orig').scrollTop = 0;
-            document.getElementById('panel-trans').scrollTop = 0;
-        }
-
-        // --- UI & RESIZER ---
-        resizer.addEventListener('pointerdown', e => {
-            if(e.target.closest('.resizer-btn')) return;
-            isResizing = true;
-            resizer.setPointerCapture(e.pointerId);
-            resizer.addEventListener('pointermove', resizeMove);
-            resizer.addEventListener('pointerup', resizeUp);
-        });
-
-        function resizeMove(e) {
-            if(!isResizing) return;
-            e.preventDefault();
-            const isVertical = splitContainer.classList.contains('vertical');
-            const rect = splitContainer.getBoundingClientRect();
-            let pct;
-            if(isVertical) pct = ((e.clientY - rect.top) / rect.height) * 100;
-            else pct = ((e.clientX - rect.left) / rect.width) * 100;
-            if(pct < 15) pct = 15; if(pct > 85) pct = 85;
-            panelOrig.style.flexBasis = `${pct}%`;
-            panelTrans.style.flexBasis = `${100-pct}%`;
-        }
-
-        function resizeUp(e) {
-            isResizing = false;
-            resizer.releasePointerCapture(e.pointerId);
-            resizer.removeEventListener('pointermove', resizeMove);
-            resizer.removeEventListener('pointerup', resizeUp);
-        }
-
-        resizerBtn.addEventListener('click', e => {
-            e.stopPropagation();
-            isTranslationHidden = !isTranslationHidden;
-            if(isTranslationHidden) {
-                panelTrans.style.display = 'none';
-                panelOrig.style.flexBasis = '100%';
-            } else {
-                panelTrans.style.display = 'block';
-                panelOrig.style.flexBasis = '50%';
-                panelTrans.style.flexBasis = '50%';
-            }
-            updateResizerBtnIcon();
-        });
-
-        function updateResizerBtnIcon() {
-            if(isTranslationHidden) {
-                const isVert = document.getElementById('split-mode').value === 'vertical';
-                resizerBtn.innerHTML = isVert ? '<i class="fas fa-chevron-up"></i>' : '<i class="fas fa-chevron-left"></i>';
-            } else {
-                resizerBtn.innerHTML = '<i class="fas fa-times"></i>';
-            }
-        }
-
-        function toggleMenu() { document.getElementById('settings-panel').classList.toggle('open'); }
-        function toggleTranslateState() {
-            isTransActive = !isTransActive;
-            document.getElementById('btn-trans').classList.toggle('active-btn');
-            render();
-        }
-        function resetTranslation() { if(isTransActive) render(); }
-        function updateLayout() {
-            const val = document.getElementById('split-mode').value;
-            const el = document.getElementById('split-container');
-            if(val === 'vertical') el.classList.add('vertical');
-            else el.classList.remove('vertical');
-            panelOrig.style.flexBasis = '50%'; panelTrans.style.flexBasis = '50%';
-            updateResizerBtnIcon();
-        }
-        function toggleBold() {
-            isBold = !isBold;
-            document.getElementById('btn-bold').classList.toggle('active-btn');
-            updateStyle();
-        }
-        function updateStyle() {
-            const sz = document.getElementById('font-size').value;
-            document.getElementById('font-val-disp').innerText = sz + 'px';
-            const w = isBold ? 'bold' : 'normal';
-            document.querySelectorAll('.content-text').forEach(el => {
-                el.style.fontFamily = document.getElementById('font-family').value;
-                el.style.fontSize = sz + 'px';
-                el.style.fontWeight = w;
+                if(buf.length > 1500) { res.push(buf); buf=""; }
             });
         }
-        function prevPage() { if(curPage > 0) { curPage--; render(); }}
-        function nextPage() { if(curPage < pages.length - 1) { curPage++; render(); }}
 
-        [panelOrig, panelTrans].forEach(p => {
-            p.addEventListener('touchstart', e => touchStartX = e.changedTouches[0].clientX);
-            p.addEventListener('touchend', e => {
-                if(isResizing) return;
-                const diff = touchStartX - e.changedTouches[0].clientX;
-                if(Math.abs(diff) > 50) { if(diff > 0) nextPage(); else prevPage(); }
-            });
-        });
+        if (buf) res.push(buf);
+        return res;
+    }
 
-        function mockAPI(html, f, t) {
-            return new Promise(r => setTimeout(() => {
-                r(`<h4 style="color:#aaa; text-align:center">[${f.toUpperCase()} ➜ ${t.toUpperCase()}]</h4>` + 
-                  html.replace(/<p>/g, `<p style="color:#007AFF">`));
-            }, 300));
+    function stripTags(html) {
+        return html.replace(/<[^>]*>?/gm, '');
+    }
+
+    // --- RENDER ---
+    async function render() {
+        document.getElementById('t-orig').innerHTML = pages[cur];
+        document.getElementById('pg-lbl').innerText = `${cur+1}/${pages.length}`;
+        document.getElementById('p-orig').scrollTop = 0;
+        
+        const tDiv = document.getElementById('t-trans');
+        if(trans) {
+            const key = cur + document.getElementById('l-to').value;
+            if(cache[key]) tDiv.innerHTML = cache[key];
+            else {
+                tDiv.innerHTML = "<i>Перевод...</i>";
+                cache[key] = await mockAPI(pages[cur]);
+                tDiv.innerHTML = cache[key];
+            }
+        } else {
+            tDiv.innerHTML = "<br><center style='opacity:0.5'>Перевод выключен</center>";
         }
-    </script>
+    }
+
+    function nav(dir) {
+        if (cur+dir >= 0 && cur+dir < pages.length) { cur+=dir; render(); }
+    }
+
+    // --- UI HELPERS ---
+    function toggleMenu() { document.getElementById('settings-panel').classList.toggle('open'); }
+    function toggleTrans() { 
+        trans = !trans; 
+        document.getElementById('btn-trans').style.background = trans ? '#4CAF50' : '#e0e0e0';
+        document.getElementById('btn-trans').style.color = trans ? '#fff' : '#000';
+        render(); 
+    }
+    
+    // --- RESIZER LOGIC ---
+    const rs = document.getElementById('resizer');
+    const sc = document.getElementById('split-cont');
+    const p1 = document.getElementById('p-orig');
+    const p2 = document.getElementById('p-trans');
+    let isResizing = false;
+
+    rs.addEventListener('pointerdown', e => {
+        if(e.target.closest('#resizer-btn')) return;
+        isResizing = true;
+        rs.setPointerCapture(e.pointerId);
+        rs.addEventListener('pointermove', onMove);
+        rs.addEventListener('pointerup', onUp);
+    });
+
+    function onMove(e) {
+        if(!isResizing) return;
+        const rect = sc.getBoundingClientRect();
+        const isV = document.getElementById('s-mode').value === 'v';
+        let pct = isV ? (e.clientY - rect.top)/rect.height : (e.clientX - rect.left)/rect.width;
+        pct = Math.max(0.1, Math.min(0.9, pct)) * 100;
+        p1.style.flexBasis = pct + '%';
+        p2.style.flexBasis = (100-pct) + '%';
+    }
+
+    function onUp(e) {
+        isResizing = false;
+        rs.releasePointerCapture(e.pointerId);
+        rs.removeEventListener('pointermove', onMove);
+        rs.removeEventListener('pointerup', onUp);
+    }
+
+    document.getElementById('resizer-btn').onclick = (e) => {
+        e.stopPropagation();
+        hidden = !hidden;
+        p2.style.display = hidden ? 'none' : 'block';
+        p1.style.flexBasis = hidden ? '100%' : '50%';
+        p2.style.flexBasis = '50%';
+        document.querySelector('#resizer-btn i').className = hidden ? (document.getElementById('s-mode').value==='v' ? 'fas fa-chevron-up' : 'fas fa-chevron-left') : 'fas fa-times';
+    };
+
+    function updLayout() {
+        const v = document.getElementById('s-mode').value;
+        if(v === 'v') sc.classList.add('vertical'); else sc.classList.remove('vertical');
+        p1.style.flexBasis = '50%'; p2.style.flexBasis = '50%';
+    }
+    
+    function updStyle() {
+        const s = document.getElementById('s-size').value + 'px';
+        const f = document.getElementById('s-font').value;
+        document.querySelectorAll('.text-content').forEach(e => { e.style.fontSize = s; e.style.fontFamily = f; });
+    }
+
+    function mockAPI(h) { return new Promise(r => setTimeout(() => r(h.replace(/<p>/g, "<p style='color:#007AFF'>")), 300)); }
+
+</script>
 </body>
 </html>
