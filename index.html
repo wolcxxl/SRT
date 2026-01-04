@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Reader V9 (Button Fix)</title>
+    <title>Reader V10 (Final Stable)</title>
     
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -17,41 +17,32 @@
         /* LIBRARY */
         #lib-view { padding: 40px 20px 80px; height: 100%; overflow-y: auto; }
         
-        /* === FIX BUTTON IOS === */
-        .upload-container {
-            position: relative; /* Важно для позиционирования */
-            width: 100%;
-            height: 60px;
-            margin-bottom: 30px;
-        }
-
-        /* Визуальная часть (красивая кнопка) */
+        /* КНОПКА ЗАГРУЗКИ (СЛОИ) */
+        .upload-container { position: relative; width: 100%; height: 60px; margin-bottom: 30px; }
         .upload-visual {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: var(--accent);
-            color: white;
-            border-radius: 14px;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--accent); color: white; border-radius: 14px;
             display: flex; justify-content: center; align-items: center;
-            font-weight: bold; font-size: 17px;
-            box-shadow: 0 4px 10px rgba(0,122,255,0.3);
-            z-index: 1; /* Снизу */
+            font-weight: bold; font-size: 17px; box-shadow: 0 4px 10px rgba(0,122,255,0.3); z-index: 1;
         }
+        #file-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; z-index: 999; cursor: pointer; }
 
-        /* Функциональная часть (невидимый инпут поверх всего) */
-        #file-input {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            opacity: 0; /* Полностью прозрачный */
-            z-index: 999; /* ПОВЕРХ ВСЕГО */
-            cursor: pointer;
-        }
-        /* ====================== */
-
+        /* СПИСОК КНИГ */
         .book-card {
-            background: var(--panel); padding: 15px; margin-bottom: 10px; border-radius: 12px;
-            display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ccc;
+            background: var(--panel); padding: 18px; margin-bottom: 12px; border-radius: 12px;
+            display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ddd;
+            transition: background 0.1s; cursor: pointer; user-select: none;
         }
+        .book-card:active { background: #e5e5e5; transform: scale(0.98); }
+
+        /* ЗАГРУЗКА */
+        #loader {
+            display: none; position: fixed; top:0; left:0; width:100%; height:100%;
+            background: rgba(255,255,255,0.8); z-index: 2000;
+            justify-content: center; align-items: center; flex-direction: column;
+        }
+        .spinner { width: 40px; height: 40px; border: 4px solid #ddd; border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
         /* READER */
         #read-view { display: none; flex-direction: column; height: 100%; background: #fff; }
@@ -78,16 +69,14 @@
 </head>
 <body>
 
+<div id="loader"><div class="spinner"></div><div style="margin-top:10px; font-weight:bold; color:#555">Открываем...</div></div>
+
 <div id="lib-view">
     <h1 style="margin-bottom: 20px;">Мои Книги</h1>
-    
     <div class="upload-container">
-        <div class="upload-visual">
-            <i class="fas fa-plus"></i>&nbsp; Добавить книгу
-        </div>
+        <div class="upload-visual"><i class="fas fa-plus"></i>&nbsp; Добавить книгу</div>
         <input type="file" id="file-input">
     </div>
-
     <div id="book-list"></div>
 </div>
 
@@ -118,11 +107,12 @@
 <script>
     let db, pages=[], cur=0, trans=false, hidden=false, cache={};
 
-    const req = indexedDB.open("ReaderV9", 1);
+    // --- DB INIT ---
+    const req = indexedDB.open("ReaderV10", 1);
     req.onupgradeneeded = e => { db=e.target.result; db.createObjectStore("books",{keyPath:"id",autoIncrement:true}); };
     req.onsuccess = e => { db=e.target.result; loadLib(); };
 
-    // --- FILE INPUT ---
+    // --- UPLOAD ---
     document.getElementById('file-input').addEventListener('change', function(e) {
         const f = e.target.files[0];
         if(!f) return;
@@ -141,22 +131,51 @@
         db.transaction("books").objectStore("books").openCursor().onsuccess = e => {
             const c = e.target.result;
             if(c) {
-                const d = document.createElement('div'); d.className = 'book-card';
-                d.innerHTML = `<b>${c.value.name}</b> <i class="fas fa-chevron-right"></i>`;
-                d.onclick = () => openBook(c.value.content);
+                const id = c.value.id; // Берем только ID и Имя
+                const name = c.value.name;
+                
+                const d = document.createElement('div'); 
+                d.className = 'book-card';
+                d.innerHTML = `<b>${name}</b> <i class="fas fa-chevron-right" style="opacity:0.3"></i>`;
+                
+                // ВАЖНО: Используем addEventListener и передаем ID
+                d.addEventListener('click', () => loadAndOpen(id));
+                
                 l.appendChild(d);
                 c.continue();
             }
         };
     }
 
-    // --- PARSER (IOS PATCHED) ---
+    // --- NEW LOADING LOGIC ---
+    function loadAndOpen(id) {
+        document.getElementById('loader').style.display = 'flex'; // Показываем спиннер
+        
+        const tx = db.transaction("books", "readonly");
+        const req = tx.objectStore("books").get(id);
+        
+        req.onsuccess = e => {
+            const book = e.target.result;
+            if(book) {
+                // Небольшая задержка чтобы UI успел обновиться
+                setTimeout(() => {
+                    openBook(book.content);
+                    document.getElementById('loader').style.display = 'none';
+                }, 50);
+            }
+        };
+        req.onerror = () => {
+            alert("Ошибка открытия книги");
+            document.getElementById('loader').style.display = 'none';
+        }
+    }
+
+    // --- PARSER ---
     function openBook(txt) {
         document.getElementById('lib-view').style.display='none';
         document.getElementById('read-view').style.display='flex';
         
-        // Удаляем namespaces для iOS
-        txt = txt.replace(/xmlns.*?=".*?"/g, ''); 
+        txt = txt.replace(/xmlns.*?=".*?"/g, ''); // Fix iOS Safari XML issues
         
         pages = [];
         if(txt.includes('<FictionBook') || txt.includes('<?xml')) parseFB2(txt);
@@ -183,7 +202,6 @@
         for(let i=0; i<all.length; i++) {
             const el = all[i];
             const tag = el.tagName.toLowerCase();
-            // Skip children to avoid duplication
             if(el.parentNode.tagName.toLowerCase() === 'p' || el.parentNode.tagName.toLowerCase() === 'title') continue;
 
             if(tag === 'title') buf += `<h3>${el.textContent}</h3>`;
@@ -207,7 +225,7 @@
         if(buf) pages.push(buf);
     }
 
-    // --- UI ---
+    // --- READER UI ---
     function render() {
         const h = pages[cur] || "";
         document.getElementById('p1').innerHTML = h;
@@ -236,7 +254,6 @@
         document.getElementById('p1').style.flexBasis = '50%'; document.getElementById('p2').style.flexBasis = '50%';
     }
 
-    // Resizer
     const rs = document.getElementById('resizer');
     const sc = document.getElementById('split');
     const p1 = document.getElementById('p1');
@@ -262,6 +279,7 @@
         e.stopPropagation(); hidden = !hidden;
         p2.style.display = hidden ? 'none' : 'block';
         p1.style.flexBasis = hidden ? '100%' : '50%';
+        e.currentTarget.innerHTML = hidden ? '<i class="fas fa-chevron-left"></i>' : '<i class="fas fa-times"></i>';
     };
 </script>
 </body>
