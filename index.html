@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>ReaderIOS</title>
+    <title>Reader V22 (Smart Sort)</title>
     
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -121,12 +121,12 @@
 
     <div id="settings">
         <div class="row">
-            <button onclick="toggleMode()" id="btn-mode" class="mode-switch">Режим: Google</button>
+            <button onclick="toggleMode()" id="btn-mode" class="mode-switch">Режим: Google (Авто)</button>
         </div>
         <div class="row">
-            <select id="lang-from"><option value="auto">Авто</option><option value="en">EN</option><option value="de">DE</option><option value="fr">FR</option><option value="zh">CN</option></select>
+            <select id="lang-from" onchange="repaginate()"><option value="auto">Авто</option><option value="en">EN</option><option value="de">DE</option><option value="fr">FR</option><option value="zh">CN</option></select>
             <i class="fas fa-arrow-right" style="color:#ccc"></i>
-            <select id="lang-to"><option value="ru">RU</option><option value="en">EN</option><option value="uk">UK</option><option value="kk">KZ</option></select>
+            <select id="lang-to" onchange="repaginate()"><option value="ru">RU</option><option value="en">EN</option><option value="uk">UK</option><option value="kk">KZ</option></select>
         </div>
         <div class="row"><button onclick="setLayout('h')" id="btn-h">|| Верт</button><button onclick="setLayout('v')" id="btn-v">= Гориз</button></div>
         <div class="row">
@@ -161,26 +161,24 @@
 
     let db, pages=[], cur=0, trans=false, hidden=false, cache={};
     let isBold = false; let isSyncing = false;
-    let isDualMode = false; // NEW: Dual Mode Flag
-    let rawParagraphs = []; // Store raw paragraphs for re-chunking
+    let isDualMode = false;
+    let rawParagraphs = [];
 
     // --- TTS WARMUP ---
     let ttsWarmed = false;
     function warmUpTTS() {
         if(ttsWarmed) return;
-        window.speechSynthesis.getVoices(); // Force load voices
-        // Silent utterance to wake up engine
+        window.speechSynthesis.getVoices(); 
         const u = new SpeechSynthesisUtterance('');
         u.volume = 0;
         window.speechSynthesis.speak(u);
         ttsWarmed = true;
     }
-    // Warmup on touch
     document.body.addEventListener('touchstart', warmUpTTS, {once:true});
     document.body.addEventListener('click', warmUpTTS, {once:true});
 
     // --- DB ---
-    const req = indexedDB.open("ReaderV21", 1);
+    const req = indexedDB.open("ReaderV22", 1);
     req.onupgradeneeded = e => { db=e.target.result; db.createObjectStore("books",{keyPath:"id",autoIncrement:true}); };
     req.onsuccess = e => { db=e.target.result; loadLib(); restoreLibSettings(); };
 
@@ -201,7 +199,6 @@
         try {
             if(type === 'epub' || type === 'pdf') content = await f.arrayBuffer();
             else content = await new Promise((r) => { const rd = new FileReader(); rd.onload = ev => r(ev.target.result); rd.readAsText(f); });
-            
             const tx = db.transaction("books", "readwrite");
             tx.objectStore("books").add({ name: f.name, type: type, content: content });
             tx.oncomplete = () => { hideLoader(); loadLib(); this.value = ''; };
@@ -267,16 +264,13 @@
     }
 
     async function parseAndRender(book) {
-        cache = {}; 
-        document.getElementById('p2').innerHTML = ""; 
-        pages = [];
-        rawParagraphs = []; // Clear raw buffer
+        cache = {}; document.getElementById('p2').innerHTML = ""; 
+        pages = []; rawParagraphs = [];
         
         const type = book.type;
         document.getElementById('lang-from').value = document.getElementById('lib-from').value;
         document.getElementById('lang-to').value = document.getElementById('lib-to').value;
 
-        // Reset mode to Google by default on new book
         isDualMode = false;
         updateModeBtn();
 
@@ -285,28 +279,86 @@
         else if (book.content.includes('<FictionBook') || book.content.includes('<?xml')) parseFB2(book.content);
         else parseTXT(book.content);
 
-        // Initial chunking (Google Mode)
         repaginate();
-
         if(pages.length === 0) pages.push({left: "<p>Пусто</p>", right: ""});
         cur=0; render();
         document.getElementById('settings').classList.remove('open');
     }
 
-    // --- RE-PAGINATION LOGIC ---
+    // --- SMART REPAGINATION ---
+    function detectScript(text) {
+        const cyrillic = (text.match(/[а-яА-ЯёЁ]/g) || []).length;
+        const latin = (text.match(/[a-zA-Z]/g) || []).length;
+        const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+        
+        if (cjk > latin && cjk > cyrillic) return 'cjk';
+        if (cyrillic > latin) return 'cyrillic';
+        if (latin > cyrillic) return 'latin';
+        return 'neutral';
+    }
+
     function repaginate() {
         pages = [];
+        
         if (isDualMode) {
-            // Dual Mode: Odd paragraphs Left, Even paragraphs Right
-            // Assuming interleaved text: Orig, Trans, Orig, Trans...
-            // Or just split paragraphs 1-1
-            for (let i = 0; i < rawParagraphs.length; i += 2) {
-                const left = rawParagraphs[i] || "";
-                const right = rawParagraphs[i+1] || "";
-                pages.push({ left: left, right: right, type: 'dual' });
+            // Smart Language Sorting
+            const sLang = document.getElementById('lang-from').value;
+            const tLang = document.getElementById('lang-to').value;
+            
+            // Define scripts based on settings
+            let sScript = 'latin';
+            if (['ru','uk','kk'].includes(sLang)) sScript = 'cyrillic';
+            if (sLang === 'zh') sScript = 'cjk';
+            
+            let tScript = 'cyrillic';
+            if (['en','de','fr'].includes(tLang)) tScript = 'latin';
+            if (tLang === 'zh') tScript = 'cjk';
+
+            // Filter raw paragraphs
+            let leftBuffer = "";
+            let rightBuffer = "";
+            
+            // Если скрипты разные (например, EN vs RU), используем детектор
+            if (sScript !== tScript) {
+                rawParagraphs.forEach(p => {
+                    // Extract simple text from HTML for detection
+                    const tmp = document.createElement('div');
+                    tmp.innerHTML = p;
+                    const plain = tmp.innerText;
+                    
+                    const detected = detectScript(plain);
+                    
+                    if (detected === sScript) leftBuffer += p;
+                    else if (detected === tScript) rightBuffer += p;
+                    else {
+                        // Neutral (numbers, etc) -> try to guess or add to both/prev
+                        // Simplest: Add to Left as default
+                        leftBuffer += p; 
+                    }
+                });
+            } else {
+                // Fallback: Odd/Even for same-script languages
+                rawParagraphs.forEach((p, i) => {
+                    if (i % 2 === 0) leftBuffer += p;
+                    else rightBuffer += p;
+                });
             }
+
+            // Create pages by chunking the two huge buffers
+            const leftChunks = chunkString(leftBuffer);
+            const rightChunks = chunkString(rightBuffer);
+            
+            const max = Math.max(leftChunks.length, rightChunks.length);
+            for(let i=0; i<max; i++) {
+                pages.push({
+                    left: leftChunks[i] || "",
+                    right: rightChunks[i] || "",
+                    type: 'dual'
+                });
+            }
+
         } else {
-            // Google Mode: Chunk by length, Right is empty (for API)
+            // Google Mode
             let buf = "";
             for (let i = 0; i < rawParagraphs.length; i++) {
                 buf += rawParagraphs[i];
@@ -319,7 +371,34 @@
         }
     }
 
-    // --- MODES ---
+    function chunkString(html) {
+        const res = [];
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = html;
+        let buf = "";
+        // Helper to reconstruct HTML
+        const walker = document.createTreeWalker(tempDiv, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+        let node;
+        while(node = walker.nextNode()) {
+            let chunk = "";
+            if(node.nodeType === 3) {
+                const txt = node.textContent.trim();
+                if(txt) chunk = `<p>${txt}</p>`;
+            } else if (node.nodeType === 1 && node.tagName === 'IMG') {
+                chunk = node.outerHTML;
+            } else if (node.nodeType === 1 && ['H1','H2','H3'].includes(node.tagName)) {
+                chunk = node.outerHTML;
+            }
+            
+            if (chunk) {
+                buf += chunk;
+                if (buf.length > 1000) { res.push(buf); buf=""; }
+            }
+        }
+        if(buf) res.push(buf);
+        return res.length ? res : [html];
+    }
+
     function toggleMode() {
         isDualMode = !isDualMode;
         updateModeBtn();
@@ -331,13 +410,12 @@
     function updateModeBtn() {
         const btn = document.getElementById('btn-mode');
         if (isDualMode) {
-            btn.innerText = "Режим: Встроенный";
+            btn.innerText = "Режим: Встроенный (Автосорт)";
             btn.classList.add('dual');
-            // Disable translate toggle in Dual mode as it's implicit
             document.getElementById('btn-trans').style.opacity = '0.5';
             document.getElementById('btn-trans').style.pointerEvents = 'none';
         } else {
-            btn.innerText = "Режим: Google";
+            btn.innerText = "Режим: Google (Авто)";
             btn.classList.remove('dual');
             document.getElementById('btn-trans').style.opacity = '1';
             document.getElementById('btn-trans').style.pointerEvents = 'auto';
@@ -357,7 +435,6 @@
         const separator = ' ||| ';
         const fullText = textNodes.map(node => node.textContent).join(separator);
         
-        // Single fast proxy
         const targetUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(fullText)}`;
         const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
 
@@ -421,16 +498,13 @@
     function speakWord() {
         const word = document.getElementById('dict-orig').innerText;
         const from = document.getElementById('lang-from').value;
-        
-        // Cancel previous
         window.speechSynthesis.cancel();
-        
         const utterance = new SpeechSynthesisUtterance(word);
         utterance.lang = from === 'auto' ? 'en-US' : from; 
         window.speechSynthesis.speak(utterance);
     }
 
-    // --- PARSERS (Populate rawParagraphs) ---
+    // --- PARSERS ---
     async function parsePDF(buffer) {
         showLoader("PDF...");
         const pdf = await pdfjsLib.getDocument({data: buffer}).promise;
@@ -501,6 +575,8 @@
                 }
             } else if (node.nodeType === 1 && node.tagName === 'IMG') {
                 rawParagraphs.push(node.outerHTML);
+            } else if (node.nodeType === 1 && ['H1','H2','H3'].includes(node.tagName)) {
+                rawParagraphs.push(node.outerHTML);
             }
         }
     }
@@ -533,7 +609,6 @@
         t.split('\n').forEach(l => { if(l.trim()) rawParagraphs.push(`<p>${l}</p>`); });
     }
 
-    // --- RENDER ---
     const p1 = document.getElementById('p1'); const p2 = document.getElementById('p2');
     
     function render() {
@@ -543,10 +618,8 @@
         p1.scrollTop = 0; p2.scrollTop = 0;
         
         if (isDualMode) {
-            // Встроенный режим: просто показываем готовый текст справа
             p2.innerHTML = pageData.right;
         } else {
-            // Google режим: проверяем транс
             if(trans) {
                 const k = cur+'_t_'+document.getElementById('lang-to').value;
                 if(cache[k]) p2.innerHTML = cache[k];
@@ -565,7 +638,7 @@
     function closeBook() { document.getElementById('read-view').style.display='none'; document.getElementById('lib-view').style.display='block'; closePopup(); }
     
     function toggleTrans() { 
-        if(isDualMode) return; // Locked in Dual Mode
+        if(isDualMode) return;
         trans = !trans; 
         const btn = document.getElementById('btn-trans');
         btn.innerText = trans ? "Перевод: ON" : "Перевод: OFF";
