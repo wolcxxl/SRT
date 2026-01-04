@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>ReaderIOS</title>
+    <title>Reader V26 (Final UI)</title>
     
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -38,7 +38,7 @@
         .action-btn { color: #888; padding: 5px; font-size: 16px; transition: color 0.2s; }
         .action-btn.edit:hover { color: var(--accent); } .action-btn.del:hover { color: var(--red); }
 
-        #loader { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(255,255,255,0.9); z-index: 2000; justify-content: center; align-items: center; flex-direction: column; text-align: center; padding: 20px; }
+        #loader { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(255,255,255,0.9); z-index: 4000; justify-content: center; align-items: center; flex-direction: column; text-align: center; padding: 20px; }
         .spinner { width: 40px; height: 40px; border: 4px solid #ddd; border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px;}
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         #loader-text { color: #555; font-weight: 500; }
@@ -53,6 +53,41 @@
         .sync-active { background-color: var(--highlight); border-radius: 4px; transition: background 0.2s; cursor: pointer; }
         .page p { margin-bottom: 10px; cursor: pointer; }
 
+        /* --- UI FIXES: RESIZER & HANDLE --- */
+        .resizer { 
+            background: #e0e0e0; 
+            z-index: 100; /* Достаточно высоко, чтобы быть над текстом, но ниже меню */
+            display: flex; justify-content: center; align-items: center; 
+        }
+        
+        .split:not(.vertical) .resizer { 
+            width: 12px; /* Узкая палка */
+            margin: 0 -6px; /* Визуальный центр */
+            cursor: col-resize; 
+        }
+        .split.vertical .resizer { height: 12px; margin: -6px 0; cursor: row-resize; }
+        
+        .handle { 
+            width: 44px; height: 44px; /* Крупная кнопка */
+            border-radius: 50%; 
+            background: var(--accent); color: white; 
+            display: flex; justify-content: center; align-items: center; 
+            font-size: 16px; border: 3px solid #fff; 
+            pointer-events: auto; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3); 
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            flex-shrink: 0; /* ЗАПРЕТ СПЛЮЩИВАНИЯ! */
+            z-index: 101; /* Чуть выше палки */
+        }
+        
+        .handle.is-close { background: var(--red); }
+        
+        .split.is-hidden .handle { 
+            width: 56px; height: 56px; /* Огромная кнопка сбоку */
+            font-size: 20px; border-width: 4px; 
+        }
+        /* ----------------------- */
+
         #dict-popup { display: none; position: absolute; z-index: 3000; background: #333; color: white; padding: 10px 15px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); max-width: 250px; font-size: 14px; text-align: center; }
         #dict-popup::after { content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px; border-width: 5px; border-style: solid; border-color: #333 transparent transparent transparent; }
         .dict-word { font-weight: bold; margin-bottom: 5px; border-bottom: 1px solid #555; padding-bottom: 5px; display: block; }
@@ -60,71 +95,17 @@
         .dict-actions { display: flex; justify-content: center; gap: 15px; margin-top: 5px; }
         .dict-btn { background: none; border: none; color: #4db6ac; cursor: pointer; font-size: 16px; }
 
-        /* --- ИСПРАВЛЕННЫЙ РАЗДЕЛИТЕЛЬ И КНОПКА --- */
-
-        /* 1. Сама серая полоска (палка) */
-        .resizer { 
-            background: #e0e0e0; /* Цвет палки */
-            z-index: 100; 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
-        }
-
-        /* Настройка ТОЛЩИНЫ палки (было 24px, ставим поменьше, чтобы было аккуратно, но зона нажатия осталась) */
-        .split:not(.vertical) .resizer { 
-            width: 12px; /* Визуальная толщина палки */
-            margin: 0 -6px; /* Отрицательный отступ, чтобы не съедала место (половина ширины) */
-            cursor: col-resize; 
-            z-index: 999; /* Чтобы палка была поверх текста */
-        }
-        
-        /* Для горизонтального режима (редкий кейс, но пусть будет) */
-        .split.vertical .resizer { 
-            height: 12px; 
-            margin: -6px 0; 
-            cursor: row-resize; 
-        }
-        
-        /* 2. Кнопка (Кругляш) */
-        .handle { 
-            width: 30px;  /* Ширина круга */
-            height: 30px; /* Высота круга */
-            border-radius: 50%; /* Делает круг идеальным */
-            
-            /* ВАЖНО: Запрещаем сплющивать кнопку! */
-            flex-shrink: 0; 
-            
-            background: var(--accent); 
-            color: white; 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
-            font-size: 16px; 
-            border: 3px solid #fff; 
-            pointer-events: auto; 
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3); 
-            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            z-index: 1000;
-        }
-
-        /* Красный цвет для крестика */
-        .handle.is-close { background: var(--red); }
-
-        /* 3. Кнопка, когда панель скрыта (Стрелочка сбоку) */
-        .split.is-hidden .handle { 
-            width: 56px; /* ЕЩЕ БОЛЬШЕ, чтобы легко достать с края */
-            height: 56px; 
-            
-            font-size: 22px; /* Иконка крупнее */
-            border-width: 4px; /* Рамка жирнее */
-            box-shadow: 0 5px 15px rgba(0,0,0,0.4);
-        }
-
         .bot-bar { height: 70px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: #f8f8f8; border-top: 1px solid #ddd; padding-bottom: env(safe-area-inset-bottom); }
         .nav-btn { font-size: 24px; color: var(--accent); background: none; border: none; padding: 10px; }
 
-        #settings { position: absolute; top: 80px; left: 0; width: 100%; background: white; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); transform: translateY(-200%); transition: 0.3s; z-index: 999; border-bottom: 1px solid #eee; }
+        /* MENU Z-INDEX FIX */
+        #settings { 
+            position: absolute; top: 80px; left: 0; width: 100%; 
+            background: white; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); 
+            transform: translateY(-200%); transition: 0.3s; 
+            z-index: 2000; /* ВЫШЕ ВСЕГО (Палка = 100) */
+            border-bottom: 1px solid #eee; 
+        }
         #settings.open { transform: translateY(0); }
         .row { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; }
         select, button { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; background: white; height: 40px; }
@@ -223,7 +204,7 @@
     document.body.addEventListener('click', warmUpTTS, {once:true});
 
     // --- DB ---
-    const req = indexedDB.open("ReaderV25", 1);
+    const req = indexedDB.open("ReaderV26", 1);
     req.onupgradeneeded = e => { db=e.target.result; db.createObjectStore("books",{keyPath:"id",autoIncrement:true}); };
     req.onsuccess = e => { db=e.target.result; loadLib(); restoreLibSettings(); };
 
@@ -327,7 +308,7 @@
         document.getElementById('settings').classList.remove('open');
     }
 
-    // --- CHUNKING FOR GOOGLE ---
+    // --- GOOGLE CHUNKING ---
     function repaginate() {
         pages = [];
         let buf = "";
@@ -525,19 +506,14 @@
         t.split('\n').forEach(l => { if(l.trim()) rawParagraphs.push(`<p>${l}</p>`); });
     }
 
-    // --- RENDER & SYNC ---
     const p1 = document.getElementById('p1'); const p2 = document.getElementById('p2');
-    
-    // !!! RESTORED SYNC SCROLL LOGIC !!!
     function syncScroll(source, target) {
-        if(isSyncing) return;
-        isSyncing = true;
+        if(isSyncing) return; isSyncing = true;
         const p = source.scrollTop / (source.scrollHeight - source.clientHeight);
         target.scrollTop = p * (target.scrollHeight - target.clientHeight);
         setTimeout(() => isSyncing = false, 50);
     }
-    p1.addEventListener('scroll', () => syncScroll(p1, p2));
-    p2.addEventListener('scroll', () => syncScroll(p2, p1));
+    p1.addEventListener('scroll', () => syncScroll(p1, p2)); p2.addEventListener('scroll', () => syncScroll(p2, p1));
 
     function render() {
         const pageData = pages[cur] || { left: "", right: "" };
@@ -547,20 +523,12 @@
         
         if(trans) {
             const k = cur+'_t_'+document.getElementById('lang-to').value;
-            if(cache[k]) { 
-                p2.innerHTML = cache[k]; 
-                // Force sync on render
-                setTimeout(() => syncScroll(p1, p2), 50);
-            }
+            if(cache[k]) { p2.innerHTML = cache[k]; setTimeout(() => syncScroll(p1, p2), 50); }
             else { 
                 p2.innerHTML = '<div style="padding:20px; color:#888; text-align:center"><i class="fas fa-spinner fa-spin"></i> Перевод (Google)...</div>';
                 const from = document.getElementById('lang-from').value;
                 const to = document.getElementById('lang-to').value;
-                googleTranslate(pageData.left, from, to).then(t => { 
-                    cache[k] = t; 
-                    p2.innerHTML = t; 
-                    setTimeout(() => syncScroll(p1, p2), 50); // Sync after load
-                });
+                googleTranslate(pageData.left, from, to).then(t => { cache[k] = t; p2.innerHTML = t; setTimeout(() => syncScroll(p1, p2), 50); });
             }
         } else p2.innerHTML = "";
     }
