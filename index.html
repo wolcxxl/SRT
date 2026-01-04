@@ -63,9 +63,40 @@
         .resizer { background: #ddd; z-index: 100; display: flex; justify-content: center; align-items: center; }
         .split:not(.vertical) .resizer { width: 24px; margin: 0 -12px; cursor: col-resize; }
         .split.vertical .resizer { height: 24px; margin: -12px 0; cursor: row-resize; }
-        .handle { width: 44px; height: 44px; background: var(--accent); border-radius: 50%; color: white; display: flex; justify-content: center; align-items: center; font-size: 10px; border: 2px solid #fff; pointer-events: auto; box-shadow: 0 2px 5px rgba(0,0,0,0.2); transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        /* ... (предыдущий код) ... */
+
+        /* 1. Основной стиль ручки (когда панель открыта) */
+        .handle { 
+            width: 44px; /* БЫЛО 24px -> СТАЛО 44px (чтобы палец попадал) */
+            height: 44px; /* БЫЛО 24px -> СТАЛО 44px */
+            
+            background: var(--accent); 
+            border-radius: 50%; 
+            color: white; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            font-size: 16px; /* Иконку тоже чуть крупнее */
+            border: 3px solid #fff; /* Рамку чуть жирнее для контраста */
+            pointer-events: auto; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3); /* Тень побольше */
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 9999; /* На всякий случай поднимаем выше всего */
+        }
+
+        /* Красный цвет для крестика */
         .handle.is-close { background: var(--red); }
-        .split.is-hidden .handle { width: 56px; height: 56px; font-size: 16px; border-width: 3px; }
+
+        /* 2. Стиль ручки, когда она ушла в бок (спрятана) */
+        .split.is-hidden .handle { 
+            width: 56px; /* БЫЛО 36px -> СТАЛО 56px (огромная кнопка, легко достать) */
+            height: 56px; /* БЫЛО 36px -> СТАЛО 56px */
+            
+            font-size: 20px; 
+            border-width: 4px; 
+        }
+
+        /* ... (дальше код) ... */
 
         .bot-bar { height: 70px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: #f8f8f8; border-top: 1px solid #ddd; padding-bottom: env(safe-area-inset-bottom); }
         .nav-btn { font-size: 24px; color: var(--accent); background: none; border: none; padding: 10px; }
