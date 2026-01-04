@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Reader V16 (Edit & Delete)</title>
+    <title>Reader V17 (Google Translate)</title>
     
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -47,11 +47,9 @@
             transition: background 0.1s; cursor: pointer; user-select: none;
         }
         .book-card:active { background: #e5e5e5; transform: scale(0.98); }
-        
         .book-info { flex: 1; display: flex; align-items: center; gap: 10px; overflow: hidden; }
         .book-type { font-size: 10px; padding: 3px 6px; border-radius: 4px; background: #eee; color: #555; font-weight: bold; flex-shrink: 0;}
         .book-name { font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 16px; }
-
         .book-actions { display: flex; gap: 15px; margin-left: 10px; }
         .action-btn { color: #888; padding: 5px; font-size: 16px; transition: color 0.2s; }
         .action-btn.edit:hover { color: var(--accent); }
@@ -97,34 +95,22 @@
 </head>
 <body>
 
-<div id="loader"><div class="spinner"></div><div id="loader-text">Обработка...</div></div>
+<div id="loader"><div class="spinner"></div><div id="loader-text">Загрузка...</div></div>
 
 <div id="lib-view">
     <h1 style="margin-bottom: 20px;">Мои Книги</h1>
-    
     <div class="lib-settings">
         <div class="lib-settings-row">
-            <span class="lib-label">Оригинал:</span>
-            <select id="lib-from" class="lib-select" onchange="saveLibSettings()">
-                <option value="en">Английский</option>
-                <option value="de">Немецкий</option>
-                <option value="fr">Французский</option>
-                <option value="zh">Китайский</option>
-            </select>
+            <span class="lib-label">С языка:</span>
+            <select id="lib-from" class="lib-select" onchange="saveLibSettings()"><option value="en">Английский</option><option value="de">Немецкий</option><option value="fr">Французский</option><option value="zh">Китайский</option><option value="auto">Авто</option></select>
         </div>
         <div class="lib-settings-row">
-            <span class="lib-label">Перевод на:</span>
-            <select id="lib-to" class="lib-select" onchange="saveLibSettings()">
-                <option value="ru" selected>Русский</option>
-                <option value="en">Английский</option>
-                <option value="uk">Украинский</option>
-                <option value="kk">Казахский</option>
-            </select>
+            <span class="lib-label">На язык:</span>
+            <select id="lib-to" class="lib-select" onchange="saveLibSettings()"><option value="ru" selected>Русский</option><option value="en">Английский</option><option value="uk">Украинский</option><option value="kk">Казахский</option></select>
         </div>
     </div>
-
     <div class="upload-container">
-        <div class="upload-visual"><i class="fas fa-plus"></i>&nbsp; Добавить (FB2, EPUB, PDF, TXT)</div>
+        <div class="upload-visual"><i class="fas fa-plus"></i>&nbsp; Добавить книгу</div>
         <input type="file" id="file-input">
     </div>
     <div id="book-list"></div>
@@ -138,7 +124,7 @@
 
     <div id="settings">
         <div class="row">
-            <select id="lang-from"><option value="en">EN</option><option value="de">DE</option><option value="fr">FR</option><option value="zh">CN</option></select>
+            <select id="lang-from"><option value="auto">Авто</option><option value="en">EN</option><option value="de">DE</option><option value="fr">FR</option><option value="zh">CN</option></select>
             <i class="fas fa-arrow-right" style="color:#ccc"></i>
             <select id="lang-to"><option value="ru">RU</option><option value="en">EN</option><option value="uk">UK</option><option value="kk">KK</option></select>
         </div>
@@ -174,7 +160,8 @@
     let db, pages=[], cur=0, trans=false, hidden=false, cache={};
     let isBold = false; let isSyncing = false;
 
-    const req = indexedDB.open("ReaderV16", 1);
+    // --- DB ---
+    const req = indexedDB.open("ReaderV17", 1);
     req.onupgradeneeded = e => { db=e.target.result; db.createObjectStore("books",{keyPath:"id",autoIncrement:true}); };
     req.onsuccess = e => { db=e.target.result; loadLib(); restoreLibSettings(); };
 
@@ -187,6 +174,7 @@
         if(localStorage.getItem('lib-to')) document.getElementById('lib-to').value = localStorage.getItem('lib-to');
     }
 
+    // --- FILE UPLOAD ---
     document.getElementById('file-input').addEventListener('change', async function(e) {
         const f = e.target.files[0]; if(!f) return;
         showLoader("Анализ...");
@@ -216,53 +204,35 @@
         db.transaction("books").objectStore("books").openCursor().onsuccess = e => {
             const c = e.target.result;
             if(c) {
-                const id=c.value.id; const name=c.value.name; const type=(c.value.type || 'TXT').toUpperCase();
+                const id=c.value.id; const name=c.value.name; const type=(c.value.type||'TXT').toUpperCase();
                 const d = document.createElement('div'); d.className = 'book-card';
-                
-                // HTML структуры карточки с кнопками
                 d.innerHTML = `
-                    <div class="book-info">
-                        <span class="book-type">${type}</span>
-                        <div class="book-name">${name}</div>
-                    </div>
+                    <div class="book-info"><span class="book-type">${type}</span><div class="book-name">${name}</div></div>
                     <div class="book-actions">
                         <i class="fas fa-pen action-btn edit" onclick="renameBook(event, ${id}, '${name.replace(/'/g, "\\'")}')"></i>
                         <i class="fas fa-trash action-btn del" onclick="deleteBook(event, ${id})"></i>
                     </div>
                 `;
-                
-                // Клик по самой карточке открывает книгу
-                d.onclick = (e) => {
-                    // Если клик был не по кнопкам
-                    if(!e.target.closest('.action-btn')) loadAndOpen(id);
-                };
-
-                l.appendChild(d);
-                c.continue();
+                d.onclick = (e) => { if(!e.target.closest('.action-btn')) loadAndOpen(id); };
+                l.appendChild(d); c.continue();
             }
         };
     }
-    
-    // --- RENAME & DELETE ---
+
     function renameBook(e, id, oldName) {
-        e.stopPropagation(); // Остановить открытие книги
-        const newName = prompt("Новое название:", oldName);
-        if(newName && newName.trim() !== "") {
+        e.stopPropagation();
+        const newName = prompt("Название:", oldName);
+        if(newName && newName.trim()) {
             const tx = db.transaction("books", "readwrite");
             const store = tx.objectStore("books");
-            const req = store.get(id);
-            req.onsuccess = () => {
-                const data = req.result;
-                data.name = newName;
-                store.put(data);
-                loadLib();
+            store.get(id).onsuccess = (ev) => {
+                const data = ev.target.result; data.name = newName; store.put(data); loadLib();
             };
         }
     }
-
     function deleteBook(e, id) {
-        e.stopPropagation(); // Остановить открытие книги
-        if(confirm("Удалить эту книгу?")) {
+        e.stopPropagation();
+        if(confirm("Удалить?")) {
             const tx = db.transaction("books", "readwrite");
             tx.objectStore("books").delete(id);
             tx.oncomplete = loadLib;
@@ -302,8 +272,58 @@
         document.getElementById('settings').classList.remove('open');
     }
 
+    // --- GOOGLE TRANSLATE API ---
+    async function googleTranslate(html, from, to) {
+        // Простой парсинг: берем текст из тегов, переводим, собираем обратно
+        // Это нужно, чтобы сохранить картинки, которые Google не вернет
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = html;
+        
+        // Собираем текст для перевода
+        const textNodes = [];
+        const walk = document.createTreeWalker(tempDiv, NodeFilter.SHOW_TEXT, null, false);
+        let n;
+        while(n = walk.nextNode()) {
+            if(n.textContent.trim().length > 0) textNodes.push(n);
+        }
+        
+        if(textNodes.length === 0) return html;
+
+        // Соединяем текст с разделителем, чтобы сделать 1 запрос
+        const separator = ' ||| ';
+        const fullText = textNodes.map(node => node.textContent).join(separator);
+        
+        // Запрос к Google через CORS Proxy
+        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(fullText)}`;
+        // Используем corsproxy.io (или api.allorigins.win как запасной)
+        const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(url);
+        
+        try {
+            const res = await fetch(proxyUrl);
+            if(!res.ok) throw new Error('Network');
+            const data = await res.json();
+            
+            // Google возвращает массив массивов. Собираем всё в одну строку.
+            const translatedFull = data[0].map(x => x[0]).join('');
+            
+            // Разбиваем обратно
+            const translatedParts = translatedFull.split(separator.trim()); // Google может съесть пробелы
+            
+            // Вставляем обратно в DOM (с защитой от несовпадения длины)
+            for(let i=0; i < textNodes.length && i < translatedParts.length; i++) {
+                textNodes[i].textContent = translatedParts[i];
+            }
+            
+            return tempDiv.innerHTML;
+        } catch (e) {
+            console.error(e);
+            return `<div style="color:red; padding:10px; border:1px solid red">Ошибка перевода (CORS/Network). Попробуйте позже.</div>` + html;
+        }
+    }
+
+    // --- PARSERS ---
     async function parsePDF(buffer) {
-        showLoader("Парсинг PDF...");
+        showLoader("PDF...");
         const pdf = await pdfjsLib.getDocument({data: buffer}).promise;
         let fullText = "";
         for (let i = 1; i <= pdf.numPages; i++) {
@@ -311,28 +331,22 @@
             const page = await pdf.getPage(i);
             const textContent = await page.getTextContent();
             const pageText = textContent.items.map(item => item.str).join(' ');
-            if(pageText.trim().length > 0) {
-                 const paragraphs = pageText.replace(/\. /g, '.</p><p>');
-                 fullText += `<p>${paragraphs}</p><hr style="border:0; border-bottom:1px dashed #ccc; margin:20px 0;">`;
-            }
+            if(pageText.trim()) fullText += `<p>${pageText}</p><hr style="border:0; border-bottom:1px dashed #ccc; margin:20px 0;">`;
         }
         chunkContent(fullText);
     }
-
     async function parseEPUB(buffer) {
-        showLoader("Распаковка EPUB...");
+        showLoader("EPUB...");
         const zip = new JSZip();
         await zip.loadAsync(buffer);
         const container = await zip.file("META-INF/container.xml").async("text");
         const parser = new DOMParser();
         const rootPath = parser.parseFromString(container, "text/xml").getElementsByTagName("rootfile")[0].getAttribute("full-path");
         const rootDir = rootPath.substring(0, rootPath.lastIndexOf('/') + 1);
-        
         const opfContent = await zip.file(rootPath).async("text");
         const opfDoc = parser.parseFromString(opfContent, "text/xml");
         const manifest = opfDoc.getElementsByTagName("manifest")[0];
         const spine = opfDoc.getElementsByTagName("spine")[0];
-        
         const resources = {};
         const manifestItems = manifest.getElementsByTagName("item");
         for (let i = 0; i < manifestItems.length; i++) {
@@ -348,7 +362,6 @@
                 }
             }
         }
-
         let fullHtml = "";
         const spineItems = spine.getElementsByTagName("itemref");
         for (let i = 0; i < spineItems.length; i++) {
@@ -369,7 +382,6 @@
         }
         chunkContent(fullHtml);
     }
-
     function chunkContent(html) {
         html = html.replace(/\s\s+/g, ' ');
         const tempDiv = document.createElement('div'); tempDiv.innerHTML = html;
@@ -386,7 +398,6 @@
         }
         if(buf) pages.push(buf);
     }
-
     function parseFB2(xml) {
         xml = xml.replace(/xmlns.*?=".*?"/g, ''); 
         const parser = new DOMParser();
@@ -413,14 +424,15 @@
         }
         if(buf) pages.push(buf);
     }
-
     function parseTXT(t) {
         let buf = "";
         t.split('\n').forEach(l => { if(l.trim()) buf += `<p>${l}</p>`; if(buf.length > 1500) { pages.push(buf); buf=""; } });
         if(buf) pages.push(buf);
     }
 
+    // --- UI & RENDER ---
     const p1 = document.getElementById('p1'); const p2 = document.getElementById('p2');
+    
     function attachSyncEvents() {
         const paras1 = document.querySelectorAll('#p1 p'); const paras2 = document.querySelectorAll('#p2 p');
         function highlight(index, targetEl) {
@@ -432,6 +444,7 @@
         paras1.forEach((p, i) => p.onclick = () => highlight(i, p));
         paras2.forEach((p, i) => p.onclick = () => highlight(i, p));
     }
+
     function syncScroll(source, target) {
         if(isSyncing) return; isSyncing = true;
         const p = source.scrollTop / (source.scrollHeight - source.clientHeight);
@@ -445,12 +458,25 @@
         p1.innerHTML = h;
         document.getElementById('lbl').innerText = `${cur+1}/${pages.length}`;
         p1.scrollTop = 0; p2.scrollTop = 0;
+        
         if(trans) {
-            const k = cur+'_t';
+            const k = cur+'_t_'+document.getElementById('lang-to').value; // Cache key with language
             if(cache[k]) { p2.innerHTML = cache[k]; attachSyncEvents(); }
-            else { p2.innerHTML = "<i>...</i>"; setTimeout(() => { cache[k] = h.replace(/<p>/g, "<p style='color:#007AFF'>"); p2.innerHTML = cache[k]; attachSyncEvents(); }, 200); }
+            else { 
+                p2.innerHTML = '<div style="padding:20px; color:#888; text-align:center"><i class="fas fa-spinner fa-spin"></i> Перевод (Google)...</div>';
+                
+                const from = document.getElementById('lang-from').value;
+                const to = document.getElementById('lang-to').value;
+                
+                googleTranslate(h, from, to).then(t => {
+                    cache[k] = t;
+                    p2.innerHTML = t;
+                    attachSyncEvents();
+                });
+            }
         } else p2.innerHTML = "";
     }
+
     function nav(d) { if(cur+d>=0 && cur+d<pages.length) { cur+=d; render(); } }
     function toggleMenu() { document.getElementById('settings').classList.toggle('open'); }
     function closeBook() { document.getElementById('read-view').style.display='none'; document.getElementById('lib-view').style.display='block'; }
@@ -481,6 +507,7 @@
         updateStyle();
     }
 
+    // Swipe
     let touchStartX = 0; let touchStartY = 0;
     const splitEl = document.getElementById('split');
     splitEl.addEventListener('touchstart', e => { touchStartX = e.changedTouches[0].clientX; touchStartY = e.changedTouches[0].clientY; }, {passive: true});
@@ -491,6 +518,7 @@
         if(Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY)) { if(diffX > 0) nav(1); else nav(-1); }
     });
 
+    // Resizer
     const rs = document.getElementById('resizer'); const sc = document.getElementById('split'); let isResizing = false;
     rs.addEventListener('pointerdown', e => { if(e.target.closest('#handle')) return; isResizing=true; rs.setPointerCapture(e.pointerId); rs.addEventListener('pointermove', onMove); rs.addEventListener('pointerup', onUp); });
     function onMove(e) {
