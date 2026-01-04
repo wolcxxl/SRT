@@ -3,357 +3,317 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Reader Pro v6.0 (Brute Force)</title>
+    <title>Reader v7.0 (Encoding Fix)</title>
 
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="manifest" id="manifest-placeholder">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
     <style>
         :root {
-            --bg-color: #f2f2f7; --text-color: #000; --panel-bg: #fff; --accent: #007AFF;
-            --safe-top: env(safe-area-inset-top, 20px); --safe-bottom: env(safe-area-inset-bottom, 20px);
+            --bg: #f2f2f7; --panel: #fff; --text: #000; --accent: #007AFF;
+            --safe-top: env(safe-area-inset-top, 20px);
+            --safe-bot: env(safe-area-inset-bottom, 20px);
         }
-        body.dark-mode { --bg-color: #000; --text-color: #d1d1d6; --panel-bg: #1c1c1e; }
-        body { margin: 0; font-family: -apple-system, sans-serif; background: var(--bg-color); color: var(--text-color); height: 100vh; display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: none; }
-        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { margin:0; font-family:-apple-system, sans-serif; background:var(--bg); color:var(--text); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+        * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
 
-        /* UI */
-        select, button, input[type="range"] { background: var(--panel-bg); border: 1px solid #c6c6c8; color: var(--text-color); border-radius: 10px; font-size: 14px; outline: none; }
-        .dark-mode select, .dark-mode button { border-color: #38383a; }
-
-        #library-view { padding: calc(var(--safe-top) + 20px) 20px var(--safe-bottom); overflow-y: auto; height: 100%; }
-        .book-card { background: var(--panel-bg); padding: 16px; margin-bottom: 12px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer; }
+        /* HEADER & LIBRARY */
+        #lib-view { padding: calc(var(--safe-top)+20px) 20px 80px 20px; overflow-y:auto; height:100%; }
         
-        /* IOS FILE INPUT HACK */
-        .upload-wrapper {
-            display: flex; justify-content: center; align-items: center; width: 100%; padding: 18px;
-            background: var(--accent); color: white; border-radius: 14px; margin-bottom: 30px; font-weight: 600;
-            position: relative; text-align: center;
+        .control-panel {
+            background: var(--panel); padding: 15px; border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px;
         }
-        .upload-wrapper input { position: absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+        
+        .upload-row { display: flex; gap: 10px; margin-top: 10px; }
+        
+        select.enc-select {
+            padding: 12px; border-radius: 10px; border: 1px solid #ddd;
+            background: #f8f8f8; font-weight: bold; width: 40%; font-size: 13px;
+        }
+
+        .btn-upload {
+            flex: 1; background: var(--accent); color: white; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 600; position: relative; overflow: hidden;
+        }
+        .btn-upload input { position: absolute; left:0; top:0; width:100%; height:100%; opacity:0; }
+
+        .book-item {
+            background: var(--panel); padding: 15px; margin-bottom: 10px; border-radius: 12px;
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid #eee; cursor: pointer;
+        }
 
         /* READER */
-        #reader-view { display: none; flex-direction: column; height: 100%; background: var(--panel-bg); }
-        .top-bar { padding-top: var(--safe-top); height: calc(44px + var(--safe-top)); border-bottom: 1px solid #eee; display: flex; justify-content: center; align-items: center; z-index: 1000; background: var(--panel-bg); }
-        .dark-mode .top-bar { border-color: #333; }
+        #read-view { display:none; flex-direction:column; height:100%; background:var(--panel); }
         
-        .menu-btn { background: var(--bg-color); padding: 6px 16px; border-radius: 20px; font-weight: 500; font-size: 14px; }
+        .top-bar {
+            padding-top: var(--safe-top); height: calc(50px + var(--safe-top));
+            display: flex; align-items: center; justify-content: space-between; padding-left: 15px; padding-right: 15px;
+            border-bottom: 1px solid #eee;
+        }
 
-        /* SETTINGS */
-        #settings-panel { position: absolute; top: calc(44px + var(--safe-top)); left:0; width:100%; background: var(--panel-bg); padding: 20px; transform: translateY(-150%); transition: 0.3s; z-index: 999; box-shadow: 0 10px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column; gap: 15px; }
-        #settings-panel.open { transform: translateY(0); }
-        .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        .split-area { flex: 1; display: flex; overflow: hidden; position: relative; }
+        .page { flex: 1; padding: 20px; overflow-y: auto; font-size: 18px; line-height: 1.6; text-align: justify; }
+        .page p { margin-bottom: 10px; }
+        .page img { max-width: 100%; border-radius: 8px; margin: 10px auto; display: block; }
+
+        .trans-page { border-left: 1px solid #ddd; background: #fafafa; color: #555; display: none; }
+        .trans-page.visible { display: block; }
+
+        .bot-bar {
+            padding-bottom: var(--safe-bot); height: calc(50px + var(--safe-bot));
+            display: flex; align-items: center; justify-content: space-between; padding-left: 20px; padding-right: 20px;
+            border-top: 1px solid #eee; background: var(--panel);
+        }
         
-        /* SPLIT */
-        .split { flex: 1; display: flex; overflow: hidden; position: relative; }
-        .split.vertical { flex-direction: column; }
-        .panel { flex: 1; padding: 20px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-        
-        .resizer { background: #ddd; z-index: 100; display: flex; justify-content: center; align-items: center; touch-action: none; }
-        .dark-mode .resizer { background: #333; }
-        .split:not(.vertical) .resizer { width: 24px; margin: 0 -12px; cursor: col-resize; }
-        .split.vertical .resizer { height: 24px; margin: -12px 0; cursor: row-resize; }
-        .resizer-handle { width: 30px; height: 30px; background: var(--accent); border-radius: 50%; color: white; display: flex; justify-content: center; align-items: center; font-size: 12px; border: 2px solid #fff; pointer-events: auto; }
+        .nav-btn { font-size: 22px; color: var(--accent); padding: 10px; background: none; border: none; }
 
-        /* TEXT */
-        .text-content { line-height: 1.6; font-size: 17px; text-align: justify; }
-        .text-content p { margin-bottom: 10px; }
-        .text-content img { max-width: 100%; display: block; margin: 10px auto; border-radius: 8px; }
-        .debug-err { color: red; padding: 20px; text-align: center; border: 1px dashed red; margin: 20px; }
+        /* UTILS */
+        .debug-box {
+            padding: 15px; margin: 20px; background: #fff3cd; color: #856404; border: 1px solid #ffeeba; border-radius: 8px; word-break: break-all; font-family: monospace; font-size: 10px; max-height: 200px; overflow: auto;
+        }
+        .hidden { display: none !important; }
 
-        /* NAV */
-        .nav { height: calc(50px + var(--safe-bottom)); padding-bottom: var(--safe-bottom); border-top: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; padding: 0 20px; background: var(--panel-bg); z-index: 1000; }
-        .dark-mode .nav { border-color: #333; }
-        .nav-btn { font-size: 24px; color: var(--accent); background: transparent; border: none; padding: 10px; }
     </style>
 </head>
 <body>
 
-<div id="library-view">
-    <h1 style="margin: 20px 0;">Библиотека</h1>
-    <label class="upload-wrapper">
-        <i class="fas fa-plus"></i>&nbsp; Выбрать файл
-        <input type="file" id="file-input"> 
-    </label>
+<div id="lib-view">
+    <h1>Библиотека</h1>
+    
+    <div class="control-panel">
+        <div style="font-size: 12px; color: #666; margin-bottom: 5px;">1. Выберите кодировку (важно для FB2!):</div>
+        <div class="upload-row">
+            <select id="encoding-select" class="enc-select">
+                <option value="windows-1251" selected>Win-1251 (RU)</option>
+                <option value="utf-8">UTF-8</option>
+            </select>
+            
+            <div class="btn-upload">
+                2. Добавить файл
+                <input type="file" id="file-input">
+            </div>
+        </div>
+        <div style="font-size: 10px; color: #999; margin-top: 8px;">
+            Попробуйте Win-1251, если книга не открывалась.
+        </div>
+    </div>
+
     <div id="book-list"></div>
+    <div style="text-align: center; margin-top: 30px;">
+        <button onclick="clearDB()" style="color: red; background: none; border: none;">Очистить базу данных</button>
+    </div>
 </div>
 
-<div id="reader-view">
+<div id="read-view">
     <div class="top-bar">
-        <div class="menu-btn" onclick="toggleMenu()"><i class="fas fa-cog"></i> Настройки</div>
+        <button onclick="closeBook()" style="color: var(--accent); background: none; border: none; font-weight: bold;">Закрыть</button>
+        <button onclick="toggleTrans()" id="btn-trans" style="font-size: 12px; padding: 5px 10px; border-radius: 15px; border: 1px solid var(--accent); background: white;">Перевод: OFF</button>
     </div>
 
-    <div id="settings-panel">
-        <div class="row">
-            <select id="l-from"><option value="en">EN</option><option value="ru">RU</option><option value="de">DE</option></select>
-            <i class="fas fa-arrow-right"></i>
-            <select id="l-to"><option value="ru">RU</option><option value="en">EN</option></select>
-        </div>
-        <button onclick="toggleTrans()" id="btn-trans" style="padding: 12px; font-weight: bold;">Включить перевод</button>
-        <div class="row">
-            <select id="s-mode" onchange="updLayout()" style="flex:1"><option value="h">|| Верт</option><option value="v">= Гориз</option></select>
-            <select id="s-font" onchange="updStyle()" style="flex:1"><option value="sans-serif">Sans</option><option value="serif">Serif</option></select>
-        </div>
-        <div class="row">
-            <span>Размер</span>
-            <input type="range" id="s-size" min="12" max="32" value="17" oninput="updStyle()">
-        </div>
-        <button onclick="closeBook()" style="background: #ff3b30; color: white; padding: 12px;">Закрыть</button>
+    <div class="split-area">
+        <div class="page" id="p-orig"></div>
+        <div class="page trans-page" id="p-trans"></div>
     </div>
 
-    <div class="split" id="split-cont">
-        <div class="panel" id="p-orig"><div class="text-content" id="t-orig"></div></div>
-        
-        <div class="resizer" id="resizer">
-            <div class="resizer-handle" id="resizer-btn"><i class="fas fa-times"></i></div>
-        </div>
-        
-        <div class="panel" id="p-trans"><div class="text-content" id="t-trans" style="color:#666"></div></div>
-    </div>
-
-    <div class="nav">
+    <div class="bot-bar">
         <button class="nav-btn" onclick="nav(-1)"><i class="fas fa-chevron-left"></i></button>
-        <span id="pg-lbl" style="font-weight: 600; color:#888">0/0</span>
+        <span id="page-lbl" style="font-size: 14px; font-weight: 600;">0/0</span>
         <button class="nav-btn" onclick="nav(1)"><i class="fas fa-chevron-right"></i></button>
     </div>
 </div>
 
 <script>
-    // --- MANIFEST SETUP ---
-    const m = { "name":"Reader", "display":"standalone", "theme_color":"#007AFF", "icons":[{ "src":"https://img.icons8.com/ios-filled/192/007AFF/open-book.png", "sizes":"192x192", "type":"image/png" }] };
-    document.getElementById('manifest-placeholder').setAttribute('href', URL.createObjectURL(new Blob([JSON.stringify(m)], {type: 'application/json'})));
+    // --- SETUP ---
+    let db, pages = [], cur = 0, trans = false;
+    let rawContentDebug = ""; // Для отладки
 
-    // --- STATE ---
-    let db, pages=[], cur=0, trans=false, hidden=false, cache={};
-    
     // --- DB INIT ---
-    const req = indexedDB.open("ReaderV6", 1);
-    req.onupgradeneeded = e => { db = e.target.result; if(!db.objectStoreNames.contains("books")) db.createObjectStore("books", {keyPath:"id", autoIncrement:true}); };
+    const req = indexedDB.open("ReaderV7", 1);
+    req.onupgradeneeded = e => { db = e.target.result; db.createObjectStore("books", {keyPath:"id", autoIncrement:true}); };
     req.onsuccess = e => { db = e.target.result; loadLib(); };
 
-    // --- FILE INPUT (ARRAY BUFFER FOR ENCODING FIX) ---
+    // --- UPLOAD HANDLER ---
     document.getElementById('file-input').addEventListener('change', function(e) {
-        const f = e.target.files[0];
-        if(!f) return;
+        const file = e.target.files[0];
+        if(!file) return;
+
+        // Берем выбранную кодировку
+        const encoding = document.getElementById('encoding-select').value;
         
         const reader = new FileReader();
-        reader.readAsArrayBuffer(f); // Читаем как байты, чтобы определить кодировку
+        reader.readAsText(file, encoding); // Читаем СРАЗУ с нужной кодировкой
         
         reader.onload = ev => {
-            const buffer = ev.target.result;
-            // 1. Пробуем декодировать как UTF-8 и ищем заголовок кодировки
-            let decoder = new TextDecoder('utf-8');
-            let text = decoder.decode(buffer);
-            
-            // Если в начале файла явно написано windows-1251, перечитываем
-            if (text.slice(0, 500).toLowerCase().includes('windows-1251')) {
-                console.log("Detected Windows-1251");
-                decoder = new TextDecoder('windows-1251');
-                text = decoder.decode(buffer);
-            }
-
+            const content = ev.target.result;
             const tx = db.transaction("books", "readwrite");
-            tx.objectStore("books").add({ name: f.name, content: text });
+            // Сохраняем имя файла с пометкой кодировки, чтобы вы знали
+            tx.objectStore("books").add({ 
+                name: file.name + ` (${encoding === 'windows-1251' ? 'Win' : 'UTF'})`, 
+                content: content 
+            });
             tx.oncomplete = loadLib;
             this.value = '';
         };
+        reader.onerror = () => alert("Ошибка чтения файла");
     });
 
     function loadLib() {
-        const l = document.getElementById('book-list'); l.innerHTML = '';
+        const list = document.getElementById('book-list'); list.innerHTML = '';
         db.transaction("books").objectStore("books").openCursor().onsuccess = e => {
             const c = e.target.result;
             if(c) {
-                const d = document.createElement('div'); d.className = 'book-card';
-                d.innerHTML = `<b>${c.value.name}</b> <i class="fas fa-chevron-right" style="color:#ccc"></i>`;
-                d.onclick = () => openBook(c.value);
-                l.appendChild(d);
+                const d = document.createElement('div'); d.className = 'book-item';
+                d.innerHTML = `<div><b>${c.value.name}</b></div><i class="fas fa-chevron-right"></i>`;
+                d.onclick = () => openBook(c.value.content);
+                list.appendChild(d);
                 c.continue();
             }
         };
     }
 
-    function openBook(book) {
-        document.getElementById('library-view').style.display = 'none';
-        document.getElementById('reader-view').style.display = 'flex';
-        
-        // ЗАПУСК BRUTE FORCE ПАРСЕРА
-        pages = parseBruteForce(book.content);
-        
+    // --- OPEN & PARSE ---
+    function openBook(text) {
+        rawContentDebug = text.substring(0, 500); // Сохраняем начало для отладки
+        document.getElementById('lib-view').style.display = 'none';
+        document.getElementById('read-view').style.display = 'flex';
+
+        pages = parseText(text);
+
+        // Если парсер вернул пустоту — показываем диагностику
         if (pages.length === 0) {
-            pages = ["<div class='debug-err'>Не удалось найти текст.<br>Возможно, файл поврежден или это картинка-PDF.<br>Попробуйте FB2 или TXT.</div>"];
+            pages = [`
+                <div style="color:red; text-align:center;">
+                    <h3>Текст не найден!</h3>
+                    <p>Возможно, неверная кодировка.</p>
+                    <button onclick="alert(rawContentDebug)" style="padding:10px; margin:10px; border:1px solid red;">Показать "Сырой текст"</button>
+                    <p>Если в "Сыром тексте" вы видите  (ромбики) — удалите книгу и загрузите снова с другой кодировкой.</p>
+                </div>
+            `];
         }
 
-        cur = 0; render();
-        document.getElementById('settings-panel').classList.remove('open');
+        cur = 0;
+        render();
     }
 
-    function closeBook() {
-        document.getElementById('reader-view').style.display = 'none';
-        document.getElementById('library-view').style.display = 'block';
-    }
-
-    // --- BRUTE FORCE REGEX PARSER (IOS SAFE) ---
-    function parseBruteForce(txt) {
-        const res = [];
+    function parseText(txt) {
+        let res = [];
         let buf = "";
         
-        // 1. Extract Images (Binaries)
-        // Ищем блоки <binary id="...">base64</binary>
+        // 1. Извлекаем картинки (Binary)
         const binaries = {};
         const binRegex = /<binary\s+[^>]*id=["']([^"']+)["'][^>]*>([\s\S]*?)<\/binary>/gi;
-        let binMatch;
-        while ((binMatch = binRegex.exec(txt)) !== null) {
-            const id = binMatch[1];
-            const data = binMatch[2].trim();
-            binaries[id] = `data:image/jpeg;base64,${data}`; // Предполагаем jpeg/png
+        let bMatch;
+        while ((bMatch = binRegex.exec(txt)) !== null) {
+            binaries[bMatch[1]] = `data:image/png;base64,${bMatch[2].trim()}`;
         }
 
-        // 2. Extract Body Content using Regex (Ignoring XML structure)
-        // Ищем <p>, <title>, <image>, <empty-line>
-        // Регулярка ищет теги и захватывает их содержимое или атрибуты
-        const tagRegex = /<(p|title|image|img|empty-line)[^>]*>(.*?)<\/\1>|<(image|img|empty-line)[^>]*\/>/gis;
+        // 2. Очищаем текст для простоты
+        // Удаляем description, binaries, stylesheet чтобы они не мешали
+        txt = txt.replace(/<description>[\s\S]*?<\/description>/gi, "");
+        txt = txt.replace(/<binary[\s\S]*?<\/binary>/gi, "");
         
-        // Упрощенный проход: разбиваем текст на теги
-        // Для надежности просто найдем все вхождения <p>...</p> и заголовков
-        
-        // a) Заголовки
-        // b) Параграфы
-        // c) Картинки
-        // Чтобы сохранить порядок, идем по тексту последовательно
-        
-        const tokenRegex = /<(title|p)[^>]*>([\s\S]*?)<\/\1>|<(image|img)[^>]*l:href=["']#?([^"']+)["'][^>]*\/?>|<(empty-line)\/>/gi;
+        // 3. Супер-простой поиск параграфов <p> и картинок <image>
+        // Используем [\s\S]*? вместо . для переносов строк
+        const regex = /<(p|title)[^>]*>([\s\S]*?)<\/\1>|<image\s+[^>]*l:href=["']#?([^"']+)["'][^>]*\/?>/gi;
         
         let match;
-        while ((match = tokenRegex.exec(txt)) !== null) {
-            const tag = match[1] || match[3] || match[5]; // title/p OR image/img OR empty-line
+        let count = 0;
+        
+        while ((match = regex.exec(txt)) !== null) {
+            const tag = match[1] ? match[1].toLowerCase() : 'image';
             
             if (tag === 'title') {
-                buf += `<h3>${stripTags(match[2])}</h3>`;
-            } else if (tag === 'p') {
-                buf += `<p>${stripTags(match[2])}</p>`;
-            } else if (tag === 'image' || tag === 'img') {
-                const id = match[4]; // href ID
-                if (binaries[id]) {
-                    buf += `<img src="${binaries[id]}">`;
-                }
-            } else if (tag === 'empty-line') {
-                buf += `<br>`;
+                // Заголовки
+                const clean = match[2].replace(/<[^>]+>/g, ''); 
+                if(clean.trim()) buf += `<h3 style="color:#007AFF; margin-top:20px">${clean}</h3>`;
+            } 
+            else if (tag === 'p') {
+                // Текст
+                buf += `<p>${match[2]}</p>`;
+                count += match[2].length;
+            } 
+            else if (tag === 'image') {
+                // Картинки
+                const id = match[3];
+                if(binaries[id]) buf += `<img src="${binaries[id]}">`;
             }
 
-            if (buf.length > 1500) {
+            // Разбивка на страницы (1500 символов)
+            if (count > 1500) {
                 res.push(buf);
                 buf = "";
+                count = 0;
             }
-        }
-
-        // Если регулярка не сработала (например, простой TXT), бьем по строкам
-        if (res.length === 0 && buf.length === 0) {
-            const lines = txt.split('\n');
-            lines.forEach(l => {
-                if(l.trim()) buf += `<p>${l}</p>`;
-                if(buf.length > 1500) { res.push(buf); buf=""; }
-            });
         }
 
         if (buf) res.push(buf);
+
+        // FALLBACK: Если XML не сработал, пробуем просто разбить по строкам (для TXT)
+        if (res.length === 0 && txt.length > 0) {
+            const lines = txt.split('\n');
+            lines.forEach(line => {
+                if(line.trim()) buf += `<p>${line}</p>`;
+                if(buf.length > 1500) { res.push(buf); buf = ""; }
+            });
+            if(buf) res.push(buf);
+        }
+
         return res;
     }
 
-    function stripTags(html) {
-        return html.replace(/<[^>]*>?/gm, '');
-    }
-
-    // --- RENDER ---
+    // --- UI ---
     async function render() {
-        document.getElementById('t-orig').innerHTML = pages[cur];
-        document.getElementById('pg-lbl').innerText = `${cur+1}/${pages.length}`;
+        const content = pages[cur] || "";
+        document.getElementById('p-orig').innerHTML = content;
+        document.getElementById('page-lbl').innerText = `${cur+1} / ${pages.length}`;
         document.getElementById('p-orig').scrollTop = 0;
         
-        const tDiv = document.getElementById('t-trans');
+        const trEl = document.getElementById('p-trans');
         if(trans) {
-            const key = cur + document.getElementById('l-to').value;
-            if(cache[key]) tDiv.innerHTML = cache[key];
-            else {
-                tDiv.innerHTML = "<i>Перевод...</i>";
-                cache[key] = await mockAPI(pages[cur]);
-                tDiv.innerHTML = cache[key];
-            }
-        } else {
-            tDiv.innerHTML = "<br><center style='opacity:0.5'>Перевод выключен</center>";
+            trEl.innerHTML = "<i>Загрузка перевода...</i>";
+            // Имитация перевода
+            setTimeout(() => {
+                trEl.innerHTML = content.replace(/<p>/g, "<p style='color:#007AFF'>");
+            }, 300);
         }
     }
 
-    function nav(dir) {
-        if (cur+dir >= 0 && cur+dir < pages.length) { cur+=dir; render(); }
+    function nav(d) {
+        if(cur+d >= 0 && cur+d < pages.length) { cur+=d; render(); }
     }
 
-    // --- UI HELPERS ---
-    function toggleMenu() { document.getElementById('settings-panel').classList.toggle('open'); }
-    function toggleTrans() { 
-        trans = !trans; 
-        document.getElementById('btn-trans').style.background = trans ? '#4CAF50' : '#e0e0e0';
-        document.getElementById('btn-trans').style.color = trans ? '#fff' : '#000';
-        render(); 
-    }
-    
-    // --- RESIZER LOGIC ---
-    const rs = document.getElementById('resizer');
-    const sc = document.getElementById('split-cont');
-    const p1 = document.getElementById('p-orig');
-    const p2 = document.getElementById('p-trans');
-    let isResizing = false;
-
-    rs.addEventListener('pointerdown', e => {
-        if(e.target.closest('#resizer-btn')) return;
-        isResizing = true;
-        rs.setPointerCapture(e.pointerId);
-        rs.addEventListener('pointermove', onMove);
-        rs.addEventListener('pointerup', onUp);
-    });
-
-    function onMove(e) {
-        if(!isResizing) return;
-        const rect = sc.getBoundingClientRect();
-        const isV = document.getElementById('s-mode').value === 'v';
-        let pct = isV ? (e.clientY - rect.top)/rect.height : (e.clientX - rect.left)/rect.width;
-        pct = Math.max(0.1, Math.min(0.9, pct)) * 100;
-        p1.style.flexBasis = pct + '%';
-        p2.style.flexBasis = (100-pct) + '%';
+    function closeBook() {
+        document.getElementById('read-view').style.display = 'none';
+        document.getElementById('lib-view').style.display = 'block';
     }
 
-    function onUp(e) {
-        isResizing = false;
-        rs.releasePointerCapture(e.pointerId);
-        rs.removeEventListener('pointermove', onMove);
-        rs.removeEventListener('pointerup', onUp);
-    }
-
-    document.getElementById('resizer-btn').onclick = (e) => {
-        e.stopPropagation();
-        hidden = !hidden;
-        p2.style.display = hidden ? 'none' : 'block';
-        p1.style.flexBasis = hidden ? '100%' : '50%';
-        p2.style.flexBasis = '50%';
-        document.querySelector('#resizer-btn i').className = hidden ? (document.getElementById('s-mode').value==='v' ? 'fas fa-chevron-up' : 'fas fa-chevron-left') : 'fas fa-times';
-    };
-
-    function updLayout() {
-        const v = document.getElementById('s-mode').value;
-        if(v === 'v') sc.classList.add('vertical'); else sc.classList.remove('vertical');
-        p1.style.flexBasis = '50%'; p2.style.flexBasis = '50%';
+    function toggleTrans() {
+        trans = !trans;
+        const btn = document.getElementById('btn-trans');
+        const pTrans = document.getElementById('p-trans');
+        
+        if(trans) {
+            btn.innerText = "Перевод: ON";
+            btn.style.background = "#007AFF";
+            btn.style.color = "white";
+            pTrans.classList.add('visible');
+        } else {
+            btn.innerText = "Перевод: OFF";
+            btn.style.background = "white";
+            btn.style.color = "black";
+            pTrans.classList.remove('visible');
+        }
+        render();
     }
     
-    function updStyle() {
-        const s = document.getElementById('s-size').value + 'px';
-        const f = document.getElementById('s-font').value;
-        document.querySelectorAll('.text-content').forEach(e => { e.style.fontSize = s; e.style.fontFamily = f; });
+    function clearDB() {
+        indexedDB.deleteDatabase("ReaderV7");
+        location.reload();
     }
-
-    function mockAPI(h) { return new Promise(r => setTimeout(() => r(h.replace(/<p>/g, "<p style='color:#007AFF'>")), 300)); }
-
 </script>
 </body>
 </html>
