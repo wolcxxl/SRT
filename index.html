@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Reader V17 (Google Translate)</title>
+    <title>Reader V17.2 (Better UX)</title>
     
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -17,77 +17,74 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
     <style>
-        :root { --accent: #007AFF; --bg: #f2f2f7; --panel: #fff; --highlight: rgba(255, 235, 59, 0.4); }
+        :root { --accent: #007AFF; --red: #ff3b30; --bg: #f2f2f7; --panel: #fff; --highlight: rgba(255, 235, 59, 0.4); }
         body { margin:0; font-family: -apple-system, sans-serif; background: var(--bg); height: 100vh; display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: none; }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
-        /* LIBRARY */
         #lib-view { padding: 40px 20px 80px; height: 100%; overflow-y: auto; }
-        
-        .lib-settings {
-            background: var(--panel); padding: 15px; border-radius: 12px; margin-bottom: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 10px;
-        }
+        .lib-settings { background: var(--panel); padding: 15px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 10px; }
         .lib-settings-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
         .lib-label { font-size: 13px; color: #666; font-weight: 500; }
         .lib-select { padding: 8px; border-radius: 8px; border: 1px solid #ddd; background: #f9f9f9; flex: 1; font-weight: bold; }
-
         .upload-container { position: relative; width: 100%; height: 55px; margin-bottom: 20px; }
-        .upload-visual {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: var(--accent); color: white; border-radius: 12px;
-            display: flex; justify-content: center; align-items: center;
-            font-weight: bold; font-size: 16px; box-shadow: 0 4px 10px rgba(0,122,255,0.3); z-index: 1;
-        }
+        .upload-visual { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--accent); color: white; border-radius: 12px; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 16px; box-shadow: 0 4px 10px rgba(0,122,255,0.3); z-index: 1; }
         #file-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; z-index: 999; cursor: pointer; }
-
-        .book-card {
-            background: var(--panel); padding: 15px; margin-bottom: 12px; border-radius: 12px;
-            display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ddd;
-            transition: background 0.1s; cursor: pointer; user-select: none;
-        }
+        .book-card { background: var(--panel); padding: 15px; margin-bottom: 12px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ddd; transition: background 0.1s; cursor: pointer; user-select: none; }
         .book-card:active { background: #e5e5e5; transform: scale(0.98); }
         .book-info { flex: 1; display: flex; align-items: center; gap: 10px; overflow: hidden; }
         .book-type { font-size: 10px; padding: 3px 6px; border-radius: 4px; background: #eee; color: #555; font-weight: bold; flex-shrink: 0;}
         .book-name { font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 16px; }
         .book-actions { display: flex; gap: 15px; margin-left: 10px; }
         .action-btn { color: #888; padding: 5px; font-size: 16px; transition: color 0.2s; }
-        .action-btn.edit:hover { color: var(--accent); }
-        .action-btn.del:hover { color: #ff3b30; }
+        .action-btn.edit:hover { color: var(--accent); } .action-btn.del:hover { color: var(--red); }
 
         #loader { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(255,255,255,0.9); z-index: 2000; justify-content: center; align-items: center; flex-direction: column; text-align: center; padding: 20px; }
         .spinner { width: 40px; height: 40px; border: 4px solid #ddd; border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px;}
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         #loader-text { color: #555; font-weight: 500; }
 
-        /* READER */
         #read-view { display: none; flex-direction: column; height: 100%; background: #fff; }
         .top-bar { height: 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; background: #f8f8f8; border-bottom: 1px solid #ddd; padding-top: env(safe-area-inset-top); }
         
         .split { flex: 1; display: flex; overflow: hidden; position: relative; touch-action: none; }
         .split.vertical { flex-direction: column; }
-        
         .page { flex: 1; padding: 20px; overflow-y: auto; font-size: 17px; line-height: 1.6; -webkit-overflow-scrolling: touch; overscroll-behavior: none; }
         .page img { max-width: 100%; border-radius: 8px; margin: 10px auto; display: block; }
-        
         .sync-active { background-color: var(--highlight); border-radius: 4px; transition: background 0.2s; cursor: pointer; }
         .page p { margin-bottom: 10px; cursor: pointer; }
 
+        /* --- UX IMPROVEMENTS --- */
         .resizer { background: #ddd; z-index: 100; display: flex; justify-content: center; align-items: center; }
-        .split:not(.vertical) .resizer { width: 16px; margin: 0 -8px; cursor: col-resize; }
-        .split.vertical .resizer { height: 16px; margin: -8px 0; cursor: row-resize; }
-        .handle { width: 24px; height: 24px; background: var(--accent); border-radius: 50%; color: white; display: flex; justify-content: center; align-items: center; font-size: 10px; border: 2px solid #fff; pointer-events: auto; }
+        /* Шире разделитель (было 16px, стало 24px) */
+        .split:not(.vertical) .resizer { width: 24px; margin: 0 -12px; cursor: col-resize; }
+        .split.vertical .resizer { height: 24px; margin: -12px 0; cursor: row-resize; }
+        
+        /* Базовый стиль ручки */
+        .handle { 
+            width: 24px; height: 24px; 
+            background: var(--accent); border-radius: 50%; color: white; 
+            display: flex; justify-content: center; align-items: center; 
+            font-size: 10px; border: 2px solid #fff; pointer-events: auto; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* Плавная анимация */
+        }
+        /* Красный цвет для крестика */
+        .handle.is-close { background: var(--red); }
+
+        /* Стиль ручки, когда панель скрыта (она сбоку) */
+        .split.is-hidden .handle {
+            width: 36px; height: 36px; /* Значительно больше */
+            font-size: 16px; /* Крупнее иконка */
+            border-width: 3px; /* Жирнее рамка */
+        }
+        /* ----------------------- */
 
         .bot-bar { height: 70px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: #f8f8f8; border-top: 1px solid #ddd; padding-bottom: env(safe-area-inset-bottom); }
         .nav-btn { font-size: 24px; color: var(--accent); background: none; border: none; padding: 10px; }
 
-        #settings {
-            position: absolute; top: 80px; left: 0; width: 100%; background: white; padding: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.15); transform: translateY(-200%); transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 999; border-bottom: 1px solid #eee;
-        }
+        #settings { position: absolute; top: 80px; left: 0; width: 100%; background: white; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); transform: translateY(-200%); transition: 0.3s; z-index: 999; border-bottom: 1px solid #eee; }
         #settings.open { transform: translateY(0); }
         .row { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; }
-        .label { font-size: 12px; color: #888; width: 100%; margin-bottom: 5px; }
         select, button { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; background: white; height: 40px; }
         button.active { background: var(--accent); color: white; border-color: var(--accent); }
         input[type=range] { width: 100%; height: 5px; border-radius: 5px; background: #d3d3d3; outline: none; }
@@ -101,12 +98,12 @@
     <h1 style="margin-bottom: 20px;">Мои Книги</h1>
     <div class="lib-settings">
         <div class="lib-settings-row">
-            <span class="lib-label">С языка:</span>
-            <select id="lib-from" class="lib-select" onchange="saveLibSettings()"><option value="en">Английский</option><option value="de">Немецкий</option><option value="fr">Французский</option><option value="zh">Китайский</option><option value="auto">Авто</option></select>
+            <span class="lib-label">Оригинал:</span>
+            <select id="lib-from" class="lib-select" onchange="saveLibSettings()"><option value="auto">Авто</option><option value="en">EN</option><option value="de">DE</option><option value="fr">FR</option><option value="zh">CN</option></select>
         </div>
         <div class="lib-settings-row">
-            <span class="lib-label">На язык:</span>
-            <select id="lib-to" class="lib-select" onchange="saveLibSettings()"><option value="ru" selected>Русский</option><option value="en">Английский</option><option value="uk">Украинский</option><option value="kk">Казахский</option></select>
+            <span class="lib-label">Перевод на:</span>
+            <select id="lib-to" class="lib-select" onchange="saveLibSettings()"><option value="ru" selected>Русский</option><option value="en">EN</option><option value="uk">UK</option><option value="kk">KZ</option></select>
         </div>
     </div>
     <div class="upload-container">
@@ -126,7 +123,7 @@
         <div class="row">
             <select id="lang-from"><option value="auto">Авто</option><option value="en">EN</option><option value="de">DE</option><option value="fr">FR</option><option value="zh">CN</option></select>
             <i class="fas fa-arrow-right" style="color:#ccc"></i>
-            <select id="lang-to"><option value="ru">RU</option><option value="en">EN</option><option value="uk">UK</option><option value="kk">KK</option></select>
+            <select id="lang-to"><option value="ru">RU</option><option value="en">EN</option><option value="uk">UK</option><option value="kk">KZ</option></select>
         </div>
         <div class="row"><button onclick="setLayout('h')" id="btn-h">|| Верт</button><button onclick="setLayout('v')" id="btn-v">= Гориз</button></div>
         <div class="row">
@@ -137,12 +134,14 @@
             <div style="display:flex; justify-content:space-between; margin-bottom:5px;"><span class="label">Размер</span><span class="label" style="text-align:right" id="size-val">17px</span></div>
             <input type="range" id="font-size" min="12" max="32" value="17" oninput="updateStyle()">
         </div>
-        <div class="row"><button onclick="closeBook()" style="background:#ff3b30; color:white; border:none">Закрыть книгу</button></div>
+        <div class="row"><button onclick="closeBook()" style="background:var(--red); color:white; border:none">Закрыть книгу</button></div>
     </div>
 
     <div class="split" id="split">
         <div class="page" id="p1"></div>
-        <div class="resizer" id="resizer"><div class="handle" id="handle"><i class="fas fa-times"></i></div></div>
+        <div class="resizer" id="resizer">
+            <div class="handle is-close" id="handle"><i class="fas fa-times"></i></div>
+        </div>
         <div class="page" id="p2" style="background:#f9f9f9; color:#555"></div>
     </div>
 
@@ -161,7 +160,7 @@
     let isBold = false; let isSyncing = false;
 
     // --- DB ---
-    const req = indexedDB.open("ReaderV17", 1);
+    const req = indexedDB.open("ReaderV17_2", 1);
     req.onupgradeneeded = e => { db=e.target.result; db.createObjectStore("books",{keyPath:"id",autoIncrement:true}); };
     req.onsuccess = e => { db=e.target.result; loadLib(); restoreLibSettings(); };
 
@@ -174,7 +173,6 @@
         if(localStorage.getItem('lib-to')) document.getElementById('lib-to').value = localStorage.getItem('lib-to');
     }
 
-    // --- FILE UPLOAD ---
     document.getElementById('file-input').addEventListener('change', async function(e) {
         const f = e.target.files[0]; if(!f) return;
         showLoader("Анализ...");
@@ -225,9 +223,7 @@
         if(newName && newName.trim()) {
             const tx = db.transaction("books", "readwrite");
             const store = tx.objectStore("books");
-            store.get(id).onsuccess = (ev) => {
-                const data = ev.target.result; data.name = newName; store.put(data); loadLib();
-            };
+            store.get(id).onsuccess = (ev) => { const data = ev.target.result; data.name = newName; store.put(data); loadLib(); };
         }
     }
     function deleteBook(e, id) {
@@ -272,53 +268,55 @@
         document.getElementById('settings').classList.remove('open');
     }
 
-    // --- GOOGLE TRANSLATE API ---
+    // --- ROBUST GOOGLE TRANSLATE WITH PROXY FALLBACK ---
     async function googleTranslate(html, from, to) {
-        // Простой парсинг: берем текст из тегов, переводим, собираем обратно
-        // Это нужно, чтобы сохранить картинки, которые Google не вернет
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = html;
-        
-        // Собираем текст для перевода
         const textNodes = [];
         const walk = document.createTreeWalker(tempDiv, NodeFilter.SHOW_TEXT, null, false);
         let n;
-        while(n = walk.nextNode()) {
-            if(n.textContent.trim().length > 0) textNodes.push(n);
-        }
-        
+        while(n = walk.nextNode()) { if(n.textContent.trim().length > 0) textNodes.push(n); }
         if(textNodes.length === 0) return html;
 
-        // Соединяем текст с разделителем, чтобы сделать 1 запрос
         const separator = ' ||| ';
         const fullText = textNodes.map(node => node.textContent).join(separator);
         
-        // Запрос к Google через CORS Proxy
-        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(fullText)}`;
-        // Используем corsproxy.io (или api.allorigins.win как запасной)
-        const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(url);
-        
-        try {
-            const res = await fetch(proxyUrl);
-            if(!res.ok) throw new Error('Network');
-            const data = await res.json();
-            
-            // Google возвращает массив массивов. Собираем всё в одну строку.
-            const translatedFull = data[0].map(x => x[0]).join('');
-            
-            // Разбиваем обратно
-            const translatedParts = translatedFull.split(separator.trim()); // Google может съесть пробелы
-            
-            // Вставляем обратно в DOM (с защитой от несовпадения длины)
-            for(let i=0; i < textNodes.length && i < translatedParts.length; i++) {
-                textNodes[i].textContent = translatedParts[i];
+        // Multi-Proxy List
+        const proxies = [
+            (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+            (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+            (u) => `https://thingproxy.freeboard.io/fetch/${u}`
+        ];
+
+        const targetUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(fullText)}`;
+
+        for (const createProxy of proxies) {
+            try {
+                const res = await fetch(createProxy(targetUrl));
+                if(!res.ok) throw new Error('Proxy status ' + res.status);
+                const data = await res.json();
+                
+                const translatedFull = data[0].map(x => x[0]).join('');
+                const translatedParts = translatedFull.split(separator.trim());
+                
+                for(let i=0; i < textNodes.length && i < translatedParts.length; i++) {
+                    textNodes[i].textContent = translatedParts[i];
+                }
+                return tempDiv.innerHTML;
+            } catch(e) {
+                console.warn("Proxy failed, trying next...", e);
+                continue; // Try next proxy
             }
-            
-            return tempDiv.innerHTML;
-        } catch (e) {
-            console.error(e);
-            return `<div style="color:red; padding:10px; border:1px solid red">Ошибка перевода (CORS/Network). Попробуйте позже.</div>` + html;
         }
+        
+        // If all failed
+        return `<div style="color:#d32f2f; background:#ffebee; padding:10px; border-radius:8px; margin-bottom:10px; font-size:12px;">Не удалось перевести. Google блокирует запросы. <br><button onclick="retryTrans()" style="margin-top:5px; background:var(--red); color:white; padding:5px 10px; border:none; border-radius:4px;">Попробовать снова</button></div>` + html;
+    }
+
+    function retryTrans() {
+        const k = cur+'_t_'+document.getElementById('lang-to').value;
+        delete cache[k];
+        render();
     }
 
     // --- PARSERS ---
@@ -430,7 +428,6 @@
         if(buf) pages.push(buf);
     }
 
-    // --- UI & RENDER ---
     const p1 = document.getElementById('p1'); const p2 = document.getElementById('p2');
     
     function attachSyncEvents() {
@@ -460,19 +457,13 @@
         p1.scrollTop = 0; p2.scrollTop = 0;
         
         if(trans) {
-            const k = cur+'_t_'+document.getElementById('lang-to').value; // Cache key with language
+            const k = cur+'_t_'+document.getElementById('lang-to').value;
             if(cache[k]) { p2.innerHTML = cache[k]; attachSyncEvents(); }
             else { 
                 p2.innerHTML = '<div style="padding:20px; color:#888; text-align:center"><i class="fas fa-spinner fa-spin"></i> Перевод (Google)...</div>';
-                
                 const from = document.getElementById('lang-from').value;
                 const to = document.getElementById('lang-to').value;
-                
-                googleTranslate(h, from, to).then(t => {
-                    cache[k] = t;
-                    p2.innerHTML = t;
-                    attachSyncEvents();
-                });
+                googleTranslate(h, from, to).then(t => { cache[k] = t; p2.innerHTML = t; attachSyncEvents(); });
             }
         } else p2.innerHTML = "";
     }
@@ -507,7 +498,6 @@
         updateStyle();
     }
 
-    // Swipe
     let touchStartX = 0; let touchStartY = 0;
     const splitEl = document.getElementById('split');
     splitEl.addEventListener('touchstart', e => { touchStartX = e.changedTouches[0].clientX; touchStartY = e.changedTouches[0].clientY; }, {passive: true});
@@ -518,7 +508,6 @@
         if(Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY)) { if(diffX > 0) nav(1); else nav(-1); }
     });
 
-    // Resizer
     const rs = document.getElementById('resizer'); const sc = document.getElementById('split'); let isResizing = false;
     rs.addEventListener('pointerdown', e => { if(e.target.closest('#handle')) return; isResizing=true; rs.setPointerCapture(e.pointerId); rs.addEventListener('pointermove', onMove); rs.addEventListener('pointerup', onUp); });
     function onMove(e) {
@@ -530,12 +519,26 @@
         p1.style.flexBasis = pct+'%'; p2.style.flexBasis = (100-pct)+'%';
     }
     function onUp(e) { isResizing=false; rs.releasePointerCapture(e.pointerId); }
+    
+    // UX IMPROVEMENTS JS
     document.getElementById('handle').onclick = e => {
         e.stopPropagation(); hidden = !hidden;
         p2.style.display = hidden ? 'none' : 'block';
         p1.style.flexBasis = hidden ? '100%' : '50%';
-        e.currentTarget.innerHTML = hidden ? '<i class="fas fa-chevron-left"></i>' : '<i class="fas fa-times"></i>';
-        if(!hidden) syncScroll(p1, p2);
+        
+        const hdl = e.currentTarget;
+        const splitContainer = document.getElementById('split');
+
+        if(hidden) {
+            hdl.innerHTML = '<i class="fas fa-chevron-left"></i>';
+            hdl.classList.remove('is-close');
+            splitContainer.classList.add('is-hidden');
+        } else {
+            hdl.innerHTML = '<i class="fas fa-times"></i>';
+            hdl.classList.add('is-close');
+            splitContainer.classList.remove('is-hidden');
+            syncScroll(p1, p2);
+        }
     };
 </script>
 </body>
