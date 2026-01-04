@@ -3,13 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Reader V14 (Highlight Sync)</title>
+    <title>Reader V15 (PDF & EPUB)</title>
     
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f2f2f7">
     <link rel="manifest" id="manifest-placeholder">
     <link rel="apple-touch-icon" href="https://img.icons8.com/ios-filled/180/007AFF/open-book.png">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+    
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
     <style>
@@ -43,10 +50,12 @@
             transition: background 0.1s; cursor: pointer; user-select: none;
         }
         .book-card:active { background: #e5e5e5; transform: scale(0.98); }
+        .book-type { font-size: 10px; padding: 3px 6px; border-radius: 4px; background: #eee; color: #555; font-weight: bold; margin-right: 10px; }
 
-        #loader { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(255,255,255,0.8); z-index: 2000; justify-content: center; align-items: center; }
-        .spinner { width: 40px; height: 40px; border: 4px solid #ddd; border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
+        #loader { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(255,255,255,0.9); z-index: 2000; justify-content: center; align-items: center; flex-direction: column; text-align: center; padding: 20px; }
+        .spinner { width: 40px; height: 40px; border: 4px solid #ddd; border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px;}
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #loader-text { color: #555; font-weight: 500; }
 
         /* READER */
         #read-view { display: none; flex-direction: column; height: 100%; background: #fff; }
@@ -58,9 +67,8 @@
         .page { flex: 1; padding: 20px; overflow-y: auto; font-size: 17px; line-height: 1.6; -webkit-overflow-scrolling: touch; overscroll-behavior: none; }
         .page img { max-width: 100%; border-radius: 8px; margin: 10px auto; display: block; }
         
-        /* HIGHLIGHT CLASS */
         .sync-active { background-color: var(--highlight); border-radius: 4px; transition: background 0.2s; cursor: pointer; }
-        .page p { margin-bottom: 10px; cursor: pointer; } /* Курсор, чтобы было понятно, что можно кликнуть */
+        .page p { margin-bottom: 10px; cursor: pointer; }
 
         .resizer { background: #ddd; z-index: 100; display: flex; justify-content: center; align-items: center; }
         .split:not(.vertical) .resizer { width: 16px; margin: 0 -8px; cursor: col-resize; }
@@ -70,7 +78,6 @@
         .bot-bar { height: 70px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: #f8f8f8; border-top: 1px solid #ddd; padding-bottom: env(safe-area-inset-bottom); }
         .nav-btn { font-size: 24px; color: var(--accent); background: none; border: none; padding: 10px; }
 
-        /* MENU */
         #settings {
             position: absolute; top: 80px; left: 0; width: 100%; background: white; padding: 20px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.15); transform: translateY(-200%); transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 999; border-bottom: 1px solid #eee;
@@ -85,7 +92,10 @@
 </head>
 <body>
 
-<div id="loader"><div class="spinner"></div></div>
+<div id="loader">
+    <div class="spinner"></div>
+    <div id="loader-text">Обработка...</div>
+</div>
 
 <div id="lib-view">
     <h1 style="margin-bottom: 20px;">Мои Книги</h1>
@@ -112,7 +122,7 @@
     </div>
 
     <div class="upload-container">
-        <div class="upload-visual"><i class="fas fa-plus"></i>&nbsp; Добавить книгу</div>
+        <div class="upload-visual"><i class="fas fa-plus"></i>&nbsp; Добавить (FB2, EPUB, PDF, TXT)</div>
         <input type="file" id="file-input">
     </div>
     <div id="book-list"></div>
@@ -160,11 +170,9 @@
     document.getElementById('manifest-placeholder').setAttribute('href', URL.createObjectURL(new Blob([JSON.stringify(m)], {type: 'application/json'})));
 
     let db, pages=[], cur=0, trans=false, hidden=false, cache={};
-    let isBold = false;
-    let isSyncing = false;
+    let isBold = false; let isSyncing = false;
 
-    // --- DB INIT ---
-    const req = indexedDB.open("ReaderV14", 1);
+    const req = indexedDB.open("ReaderV15", 1);
     req.onupgradeneeded = e => { db=e.target.result; db.createObjectStore("books",{keyPath:"id",autoIncrement:true}); };
     req.onsuccess = e => { db=e.target.result; loadLib(); restoreLibSettings(); };
 
@@ -177,28 +185,58 @@
         if(localStorage.getItem('lib-to')) document.getElementById('lib-to').value = localStorage.getItem('lib-to');
     }
 
-    // --- UPLOAD ---
-    document.getElementById('file-input').addEventListener('change', function(e) {
+    // --- UNIVERSAL FILE HANDLER ---
+    document.getElementById('file-input').addEventListener('change', async function(e) {
         const f = e.target.files[0];
         if(!f) return;
-        const r = new FileReader();
-        r.onload = ev => {
+        
+        showLoader("Анализ файла...");
+        
+        const type = f.name.split('.').pop().toLowerCase();
+        let content = null;
+        let isBinary = false;
+
+        try {
+            if(type === 'epub' || type === 'pdf') {
+                // Read as ArrayBuffer for binary formats
+                content = await f.arrayBuffer();
+                isBinary = true;
+            } else {
+                // Read as Text for FB2/TXT
+                content = await new Promise((resolve) => {
+                    const r = new FileReader();
+                    r.onload = ev => resolve(ev.target.result);
+                    r.readAsText(f);
+                });
+            }
+
             const tx = db.transaction("books", "readwrite");
-            tx.objectStore("books").add({ name: f.name, content: ev.target.result });
-            tx.oncomplete = loadLib;
-            this.value = '';
-        };
-        r.readAsText(f);
+            tx.objectStore("books").add({ name: f.name, type: type, content: content, isBinary: isBinary });
+            tx.oncomplete = () => {
+                hideLoader();
+                loadLib();
+                this.value = '';
+            };
+        } catch(err) {
+            hideLoader();
+            alert("Ошибка загрузки: " + err.message);
+        }
     });
+
+    function showLoader(text) {
+        document.getElementById('loader-text').innerText = text;
+        document.getElementById('loader').style.display = 'flex';
+    }
+    function hideLoader() { document.getElementById('loader').style.display = 'none'; }
 
     function loadLib() {
         const l = document.getElementById('book-list'); l.innerHTML = '';
         db.transaction("books").objectStore("books").openCursor().onsuccess = e => {
             const c = e.target.result;
             if(c) {
-                const id=c.value.id; const name=c.value.name;
+                const id=c.value.id; const name=c.value.name; const type=c.value.type.toUpperCase();
                 const d = document.createElement('div'); d.className = 'book-card';
-                d.innerHTML = `<b>${name}</b> <i class="fas fa-chevron-right" style="opacity:0.3"></i>`;
+                d.innerHTML = `<div><span class="book-type">${type}</span><b>${name}</b></div> <i class="fas fa-chevron-right" style="opacity:0.3"></i>`;
                 d.addEventListener('click', () => loadAndOpen(id));
                 l.appendChild(d);
                 c.continue();
@@ -206,34 +244,194 @@
         };
     }
 
-    function loadAndOpen(id) {
-        document.getElementById('loader').style.display = 'flex';
+    async function loadAndOpen(id) {
+        showLoader("Открываем...");
         const tx = db.transaction("books", "readonly");
         const req = tx.objectStore("books").get(id);
-        req.onsuccess = e => {
+        req.onsuccess = async e => {
             const book = e.target.result;
-            if(book) setTimeout(() => { openBook(book.content); document.getElementById('loader').style.display = 'none'; }, 50);
+            if(book) {
+                try {
+                    await parseAndRender(book);
+                    document.getElementById('lib-view').style.display='none';
+                    document.getElementById('read-view').style.display='flex';
+                    hideLoader();
+                } catch(err) {
+                    hideLoader();
+                    alert("Ошибка чтения: " + err.message);
+                }
+            }
         };
     }
 
-    // --- PARSER ---
-    function openBook(txt) {
-        document.getElementById('lib-view').style.display='none';
-        document.getElementById('read-view').style.display='flex';
-        txt = txt.replace(/xmlns.*?=".*?"/g, ''); 
+    // --- MASTER PARSER ---
+    async function parseAndRender(book) {
+        pages = [];
+        const type = book.type;
         
         document.getElementById('lang-from').value = document.getElementById('lib-from').value;
         document.getElementById('lang-to').value = document.getElementById('lib-to').value;
 
-        pages = [];
-        if(txt.includes('<FictionBook') || txt.includes('<?xml')) parseFB2(txt);
-        else parseTXT(txt);
+        if (type === 'pdf') {
+            await parsePDF(book.content);
+        } else if (type === 'epub') {
+            await parseEPUB(book.content);
+        } else if (book.content.includes('<FictionBook') || book.content.includes('<?xml')) {
+            parseFB2(book.content);
+        } else {
+            parseTXT(book.content);
+        }
+
+        if(pages.length === 0) pages.push("<p>Пустая книга или ошибка парсинга</p>");
         
         cur=0; render();
         document.getElementById('settings').classList.remove('open');
     }
 
+    // --- PDF PARSER (Text Reflow) ---
+    async function parsePDF(buffer) {
+        showLoader("Парсинг PDF...");
+        const pdf = await pdfjsLib.getDocument({data: buffer}).promise;
+        let fullText = "";
+        
+        for (let i = 1; i <= pdf.numPages; i++) {
+            showLoader(`PDF: Стр ${i} из ${pdf.numPages}`);
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            // Simple text extraction
+            const pageText = textContent.items.map(item => item.str).join(' ');
+            
+            // Basic formatting heuristic
+            if(pageText.trim().length > 0) {
+                 // Try to split by periods to make paragraphs
+                 const paragraphs = pageText.replace(/\. /g, '.</p><p>');
+                 fullText += `<p>${paragraphs}</p><hr style="border:0; border-bottom:1px dashed #ccc; margin:20px 0;">`;
+            }
+        }
+        
+        // Chunking
+        chunkContent(fullText);
+    }
+
+    // --- EPUB PARSER (Full Support) ---
+    async function parseEPUB(buffer) {
+        showLoader("Распаковка EPUB...");
+        const zip = new JSZip();
+        await zip.loadAsync(buffer);
+        
+        // 1. Find OPF
+        const container = await zip.file("META-INF/container.xml").async("text");
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(container, "text/xml");
+        const rootPath = xmlDoc.getElementsByTagName("rootfile")[0].getAttribute("full-path");
+        const rootDir = rootPath.substring(0, rootPath.lastIndexOf('/') + 1);
+        
+        // 2. Parse OPF
+        const opfContent = await zip.file(rootPath).async("text");
+        const opfDoc = parser.parseFromString(opfContent, "text/xml");
+        const manifest = opfDoc.getElementsByTagName("manifest")[0];
+        const spine = opfDoc.getElementsByTagName("spine")[0];
+        
+        // 3. Map resources (images) to Blob URLs
+        const resources = {};
+        const manifestItems = manifest.getElementsByTagName("item");
+        
+        for (let i = 0; i < manifestItems.length; i++) {
+            const item = manifestItems[i];
+            const href = item.getAttribute("href");
+            const id = item.getAttribute("id");
+            const mediaType = item.getAttribute("media-type");
+            
+            if (mediaType.startsWith("image/")) {
+                const imgPath = rootDir + href;
+                const imgFile = zip.file(imgPath);
+                if (imgFile) {
+                    const imgBlob = await imgFile.async("blob");
+                    resources[href] = URL.createObjectURL(imgBlob); // Save plain filename key
+                    // Also save with full path just in case
+                    resources[imgPath] = resources[href]; 
+                }
+            }
+        }
+
+        // 4. Process Spine (Chapters)
+        let fullHtml = "";
+        const spineItems = spine.getElementsByTagName("itemref");
+        
+        for (let i = 0; i < spineItems.length; i++) {
+            showLoader(`EPUB: Глава ${i+1}`);
+            const idref = spineItems[i].getAttribute("idref");
+            // Find item in manifest by id
+            let href = "";
+            for(let j=0; j<manifestItems.length; j++) {
+                if(manifestItems[j].getAttribute("id") === idref) {
+                    href = manifestItems[j].getAttribute("href");
+                    break;
+                }
+            }
+            
+            if(href) {
+                const chPath = rootDir + href;
+                let chContent = await zip.file(chPath).async("text");
+                
+                // Replace image sources
+                // Look for src="..." and replace if we have a blob
+                // This is a simple regex replacer, might need refinement for complex paths
+                for (const [key, blobUrl] of Object.entries(resources)) {
+                    // Try to match standard filename
+                    const filename = key.split('/').pop();
+                    const regex = new RegExp(`src=["'].*?${filename}["']`, 'g');
+                    chContent = chContent.replace(regex, `src="${blobUrl}"`);
+                }
+                
+                // Extract body content
+                const chDoc = parser.parseFromString(chContent, "text/html") || parser.parseFromString(chContent, "application/xhtml+xml");
+                if(chDoc.body) {
+                    fullHtml += chDoc.body.innerHTML;
+                }
+            }
+        }
+        
+        chunkContent(fullHtml);
+    }
+
+    function chunkContent(html) {
+        // Cleaning
+        // Replace huge spaces
+        html = html.replace(/\s\s+/g, ' ');
+        
+        // Split by simple logic (paragraphs or length)
+        // Here we use the V14 logic adapted
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = html;
+        
+        let buf = "";
+        const children = tempDiv.childNodes;
+        
+        for (let i = 0; i < children.length; i++) {
+            const node = children[i];
+            if (node.nodeType === 3) { // Text
+                if (node.textContent.trim()) buf += `<p>${node.textContent}</p>`;
+            } else if (node.nodeType === 1) { // Element
+                 if (node.tagName === 'IMG') {
+                     buf += node.outerHTML;
+                 } else if (['P','DIV','H1','H2','H3','H4'].includes(node.tagName)) {
+                     buf += node.outerHTML;
+                 } else {
+                     buf += `<p>${node.innerText}</p>`;
+                 }
+            }
+            
+            if (buf.length > 1500) {
+                pages.push(buf);
+                buf = "";
+            }
+        }
+        if(buf) pages.push(buf);
+    }
+
     function parseFB2(xml) {
+        xml = xml.replace(/xmlns.*?=".*?"/g, ''); 
         const parser = new DOMParser();
         const doc = parser.parseFromString(xml, "text/xml");
         const bins = {};
@@ -247,7 +445,6 @@
             const el = all[i];
             const tag = el.tagName.toLowerCase();
             if(el.parentNode.tagName.toLowerCase() === 'p' || el.parentNode.tagName.toLowerCase() === 'title') continue;
-            
             if(tag === 'title') buf += `<h3>${el.textContent}</h3>`;
             else if(tag === 'p') buf += `<p>${el.textContent}</p>`;
             else if(tag === 'image') {
@@ -269,39 +466,26 @@
         if(buf) pages.push(buf);
     }
 
-    // --- HIGHLIGHT SYNC LOGIC ---
+    // --- UI & SYNC ---
+    const p1 = document.getElementById('p1');
+    const p2 = document.getElementById('p2');
+
     function attachSyncEvents() {
         const paras1 = document.querySelectorAll('#p1 p');
         const paras2 = document.querySelectorAll('#p2 p');
-
         function highlight(index, targetEl) {
-            // Удаляем старую подсветку
             document.querySelectorAll('.sync-active').forEach(e => e.classList.remove('sync-active'));
-            
-            // Подсвечиваем в оригинале
             if(paras1[index]) paras1[index].classList.add('sync-active');
-            
-            // Подсвечиваем в переводе и скроллим
             if(paras2[index]) {
                 paras2[index].classList.add('sync-active');
-                if(targetEl !== paras2[index]) { // Скроллим к переводу, если клик был в оригинале
-                     paras2[index].scrollIntoView({ behavior: "smooth", block: "center" });
-                }
+                if(targetEl !== paras2[index]) paras2[index].scrollIntoView({ behavior: "smooth", block: "center" });
             }
-            // Скроллим оригинал, если клик был в переводе
-            if(targetEl !== paras1[index] && paras1[index]) {
-                paras1[index].scrollIntoView({ behavior: "smooth", block: "center" });
-            }
+            if(targetEl !== paras1[index] && paras1[index]) paras1[index].scrollIntoView({ behavior: "smooth", block: "center" });
         }
-
         paras1.forEach((p, i) => p.onclick = () => highlight(i, p));
         paras2.forEach((p, i) => p.onclick = () => highlight(i, p));
     }
 
-
-    // --- SYNC SCROLL ---
-    const p1 = document.getElementById('p1');
-    const p2 = document.getElementById('p2');
     function syncScroll(source, target) {
         if(isSyncing) return;
         isSyncing = true;
@@ -312,7 +496,6 @@
     p1.addEventListener('scroll', () => syncScroll(p1, p2));
     p2.addEventListener('scroll', () => syncScroll(p2, p1));
 
-    // --- UI ---
     function render() {
         const h = pages[cur] || "";
         p1.innerHTML = h;
@@ -321,16 +504,13 @@
         
         if(trans) {
             const k = cur+'_t';
-            if(cache[k]) {
-                p2.innerHTML = cache[k];
-                attachSyncEvents(); // Attach highlighting after render
-            }
+            if(cache[k]) { p2.innerHTML = cache[k]; attachSyncEvents(); }
             else { 
                 p2.innerHTML = "<i>...</i>"; 
                 setTimeout(() => { 
                     cache[k] = h.replace(/<p>/g, "<p style='color:#007AFF'>"); 
                     p2.innerHTML = cache[k]; 
-                    attachSyncEvents(); // Attach highlighting
+                    attachSyncEvents();
                 }, 200); 
             }
         } else p2.innerHTML = "";
@@ -339,7 +519,6 @@
     function nav(d) { if(cur+d>=0 && cur+d<pages.length) { cur+=d; render(); } }
     function toggleMenu() { document.getElementById('settings').classList.toggle('open'); }
     function closeBook() { document.getElementById('read-view').style.display='none'; document.getElementById('lib-view').style.display='block'; }
-    
     function toggleTrans() { 
         trans = !trans; 
         const btn = document.getElementById('btn-trans');
@@ -348,13 +527,11 @@
         btn.style.color = trans ? 'white' : 'var(--accent)';
         render(); 
     }
-
     function setLayout(m) {
         const s = document.getElementById('split');
         if(m==='v') s.classList.add('vertical'); else s.classList.remove('vertical');
         p1.style.flexBasis = '50%'; p2.style.flexBasis = '50%';
     }
-
     function updateStyle() {
         const size = document.getElementById('font-size').value;
         const family = document.getElementById('font-family').value;
@@ -362,7 +539,6 @@
         document.getElementById('size-val').innerText = size + 'px';
         [p1, p2].forEach(el => { el.style.fontSize = size + 'px'; el.style.fontFamily = family; el.style.fontWeight = weight; });
     }
-
     function toggleBold() {
         isBold = !isBold;
         const btn = document.getElementById('btn-bold');
@@ -371,7 +547,6 @@
         updateStyle();
     }
 
-    // --- SWIPE (FIXED) ---
     let touchStartX = 0; let touchStartY = 0;
     const splitEl = document.getElementById('split');
     splitEl.addEventListener('touchstart', e => { touchStartX = e.changedTouches[0].clientX; touchStartY = e.changedTouches[0].clientY; }, {passive: true});
@@ -384,11 +559,9 @@
         }
     });
 
-    // --- RESIZER ---
     const rs = document.getElementById('resizer');
     const sc = document.getElementById('split');
     let isResizing = false;
-
     rs.addEventListener('pointerdown', e => {
         if(e.target.closest('#handle')) return;
         isResizing=true; rs.setPointerCapture(e.pointerId);
@@ -403,7 +576,6 @@
         p1.style.flexBasis = pct+'%'; p2.style.flexBasis = (100-pct)+'%';
     }
     function onUp(e) { isResizing=false; rs.releasePointerCapture(e.pointerId); }
-    
     document.getElementById('handle').onclick = e => {
         e.stopPropagation(); hidden = !hidden;
         p2.style.display = hidden ? 'none' : 'block';
