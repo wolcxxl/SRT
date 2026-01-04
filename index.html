@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Reader V13 (Smart Swipe)</title>
+    <title>Reader V14 (Highlight Sync)</title>
     
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,7 +13,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
     <style>
-        :root { --accent: #007AFF; --bg: #f2f2f7; --panel: #fff; }
+        :root { --accent: #007AFF; --bg: #f2f2f7; --panel: #fff; --highlight: rgba(255, 235, 59, 0.4); }
         body { margin:0; font-family: -apple-system, sans-serif; background: var(--bg); height: 100vh; display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: none; }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
@@ -55,9 +55,12 @@
         .split { flex: 1; display: flex; overflow: hidden; position: relative; touch-action: none; }
         .split.vertical { flex-direction: column; }
         
-        /* Важно: overscroll-behavior: none предотвращает "резинку" при скролле до конца */
         .page { flex: 1; padding: 20px; overflow-y: auto; font-size: 17px; line-height: 1.6; -webkit-overflow-scrolling: touch; overscroll-behavior: none; }
         .page img { max-width: 100%; border-radius: 8px; margin: 10px auto; display: block; }
+        
+        /* HIGHLIGHT CLASS */
+        .sync-active { background-color: var(--highlight); border-radius: 4px; transition: background 0.2s; cursor: pointer; }
+        .page p { margin-bottom: 10px; cursor: pointer; } /* Курсор, чтобы было понятно, что можно кликнуть */
 
         .resizer { background: #ddd; z-index: 100; display: flex; justify-content: center; align-items: center; }
         .split:not(.vertical) .resizer { width: 16px; margin: 0 -8px; cursor: col-resize; }
@@ -153,7 +156,6 @@
 </div>
 
 <script>
-    // --- MANIFEST ---
     const m = { "name":"Reader", "display":"standalone", "background_color":"#f2f2f7", "theme_color":"#007AFF", "icons":[{ "src":"https://img.icons8.com/ios-filled/192/007AFF/open-book.png", "sizes":"192x192", "type":"image/png" }] };
     document.getElementById('manifest-placeholder').setAttribute('href', URL.createObjectURL(new Blob([JSON.stringify(m)], {type: 'application/json'})));
 
@@ -162,7 +164,7 @@
     let isSyncing = false;
 
     // --- DB INIT ---
-    const req = indexedDB.open("ReaderV13", 1);
+    const req = indexedDB.open("ReaderV14", 1);
     req.onupgradeneeded = e => { db=e.target.result; db.createObjectStore("books",{keyPath:"id",autoIncrement:true}); };
     req.onsuccess = e => { db=e.target.result; loadLib(); restoreLibSettings(); };
 
@@ -245,6 +247,7 @@
             const el = all[i];
             const tag = el.tagName.toLowerCase();
             if(el.parentNode.tagName.toLowerCase() === 'p' || el.parentNode.tagName.toLowerCase() === 'title') continue;
+            
             if(tag === 'title') buf += `<h3>${el.textContent}</h3>`;
             else if(tag === 'p') buf += `<p>${el.textContent}</p>`;
             else if(tag === 'image') {
@@ -265,6 +268,36 @@
         });
         if(buf) pages.push(buf);
     }
+
+    // --- HIGHLIGHT SYNC LOGIC ---
+    function attachSyncEvents() {
+        const paras1 = document.querySelectorAll('#p1 p');
+        const paras2 = document.querySelectorAll('#p2 p');
+
+        function highlight(index, targetEl) {
+            // Удаляем старую подсветку
+            document.querySelectorAll('.sync-active').forEach(e => e.classList.remove('sync-active'));
+            
+            // Подсвечиваем в оригинале
+            if(paras1[index]) paras1[index].classList.add('sync-active');
+            
+            // Подсвечиваем в переводе и скроллим
+            if(paras2[index]) {
+                paras2[index].classList.add('sync-active');
+                if(targetEl !== paras2[index]) { // Скроллим к переводу, если клик был в оригинале
+                     paras2[index].scrollIntoView({ behavior: "smooth", block: "center" });
+                }
+            }
+            // Скроллим оригинал, если клик был в переводе
+            if(targetEl !== paras1[index] && paras1[index]) {
+                paras1[index].scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+        }
+
+        paras1.forEach((p, i) => p.onclick = () => highlight(i, p));
+        paras2.forEach((p, i) => p.onclick = () => highlight(i, p));
+    }
+
 
     // --- SYNC SCROLL ---
     const p1 = document.getElementById('p1');
@@ -288,8 +321,18 @@
         
         if(trans) {
             const k = cur+'_t';
-            if(cache[k]) p2.innerHTML = cache[k];
-            else { p2.innerHTML = "<i>...</i>"; setTimeout(() => { cache[k] = h.replace(/<p>/g, "<p style='color:#007AFF'>"); p2.innerHTML = cache[k]; }, 200); }
+            if(cache[k]) {
+                p2.innerHTML = cache[k];
+                attachSyncEvents(); // Attach highlighting after render
+            }
+            else { 
+                p2.innerHTML = "<i>...</i>"; 
+                setTimeout(() => { 
+                    cache[k] = h.replace(/<p>/g, "<p style='color:#007AFF'>"); 
+                    p2.innerHTML = cache[k]; 
+                    attachSyncEvents(); // Attach highlighting
+                }, 200); 
+            }
         } else p2.innerHTML = "";
     }
 
@@ -328,27 +371,16 @@
         updateStyle();
     }
 
-    // --- SMART SWIPE (FIXED) ---
-    let touchStartX = 0;
-    let touchStartY = 0;
+    // --- SWIPE (FIXED) ---
+    let touchStartX = 0; let touchStartY = 0;
     const splitEl = document.getElementById('split');
-
-    splitEl.addEventListener('touchstart', e => {
-        touchStartX = e.changedTouches[0].clientX;
-        touchStartY = e.changedTouches[0].clientY;
-    }, {passive: true});
-
+    splitEl.addEventListener('touchstart', e => { touchStartX = e.changedTouches[0].clientX; touchStartY = e.changedTouches[0].clientY; }, {passive: true});
     splitEl.addEventListener('touchend', e => {
         if(isResizing) return;
-        const touchEndX = e.changedTouches[0].clientX;
-        const touchEndY = e.changedTouches[0].clientY;
-        const diffX = touchStartX - touchEndX;
-        const diffY = touchStartY - touchEndY;
-
-        // Если движение по горизонтали больше чем по вертикали (чтобы исключить скролл)
+        const diffX = touchStartX - e.changedTouches[0].clientX;
+        const diffY = touchStartY - e.changedTouches[0].clientY;
         if(Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY)) {
-            if(diffX > 0) nav(1); // Влево -> След
-            else nav(-1);         // Вправо -> Пред
+            if(diffX > 0) nav(1); else nav(-1);
         }
     });
 
