@@ -3,126 +3,612 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="referrer" content="no-referrer">
-    <title>Smart Reader v67</title>
-    
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#252526">
-    
-    <link rel="stylesheet" href="css/style.css">
-    <link rel="manifest" href="manifest.json">
-    
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512' fill='%23007acc'><path d='M464 64H48C21.5 64 0 85.5 0 112v288c0 26.5 21.5 48 48 48h416c26.5 0 48-21.5 48-48V112c0-26.5-21.5-48-48-48z'/></svg>">
-    
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
-    <link rel="icon" type="image/png" href="icon.png">
+    <title>Reader Pro V4 (Resizable)</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-color: #f8f9fa;
+            --text-color: #212529;
+            --panel-bg: #ffffff;
+            --accent: #007AFF;
+            --border: #dee2e6;
+            --resizer-bg: #e9ecef;
+            --safe-top: env(safe-area-inset-top, 20px);
+            --safe-bottom: env(safe-area-inset-bottom, 20px);
+        }
 
-    <link rel="apple-touch-icon" href="icon.png">
+        body.dark-mode {
+            --bg-color: #000000;
+            --text-color: #e5e5e5;
+            --panel-bg: #1c1c1e;
+            --border: #38383a;
+            --resizer-bg: #2c2c2e;
+        }
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg-color);
+            color: var(--text-color);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            overscroll-behavior: none; /* Блокировка резинового скролла всей страницы */
+        }
+
+        /* --- UI HELPERS --- */
+        select, button, input[type="range"] {
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
+            color: var(--text-color);
+            border-radius: 8px;
+            outline: none;
+        }
+
+        /* --- LIBRARY --- */
+        #library-view {
+            padding: calc(var(--safe-top) + 20px) 20px var(--safe-bottom);
+            overflow-y: auto;
+            height: 100%;
+            display: block;
+        }
+
+        .book-card {
+            background: var(--panel-bg);
+            padding: 20px;
+            margin-bottom: 15px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            border: 1px solid var(--border);
+        }
+
+        .upload-btn {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            padding: 18px;
+            background: var(--accent);
+            color: white;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        /* --- READER --- */
+        #reader-view {
+            display: none;
+            flex-direction: column;
+            height: 100%;
+            position: relative;
+        }
+
+        .top-bar {
+            padding-top: var(--safe-top);
+            height: calc(50px + var(--safe-top));
+            background: var(--panel-bg);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            flex-shrink: 0;
+        }
+
+        .menu-trigger {
+            background: var(--bg-color);
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            border: 1px solid var(--border);
+        }
+
+        /* --- SETTINGS --- */
+        #settings-panel {
+            position: absolute;
+            top: calc(50px + var(--safe-top));
+            left: 0;
+            width: 100%;
+            background: var(--panel-bg);
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            transform: translateY(-150%);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 999;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        #settings-panel.open { transform: translateY(0); }
+        .settings-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+        .full-width-btn { width: 100%; padding: 12px; font-weight: bold; font-size: 14px; }
+        .active-btn { background: var(--accent); color: white; border-color: var(--accent); }
+        .lang-group { display: flex; align-items: center; gap: 8px; flex: 1; }
+        .lang-group select { flex: 1; padding: 8px; text-align: center; font-weight: 600; }
+        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 20px; width: 20px; border-radius: 50%;
+            background: var(--accent); cursor: pointer; margin-top: -8px;
+        }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; background: #ddd; border-radius: 2px; }
+
+        /* --- SPLIT CONTAINER & RESIZER --- */
+        .split-container {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        /* Панели */
+        .page-panel {
+            flex-basis: 50%; /* Стартовый размер */
+            flex-grow: 0;
+            flex-shrink: 0;
+            padding: 20px;
+            overflow-y: auto;
+            position: relative;
+            scrollbar-width: none; 
+            min-width: 0; /* Важно для flexbox */
+            min-height: 0;
+        }
+        .page-panel::-webkit-scrollbar { display: none; }
+
+        /* Вертикальный режим (колонки) */
+        .split-container.vertical { flex-direction: column; }
+
+        /* Разделитель (Resizer) */
+        .resizer {
+            background-color: var(--resizer-bg);
+            background-image: radial-gradient(circle, #ccc 1px, transparent 1px); /* Точки для текстуры */
+            background-size: 4px 4px;
+            z-index: 100;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            touch-action: none; /* Отключаем скролл браузера на разделителе */
+        }
+
+        /* Стили для горизонтального сплита (Resizer вертикальный) */
+        .split-container:not(.vertical) .resizer {
+            width: 12px;
+            cursor: col-resize;
+            border-left: 1px solid var(--border);
+            border-right: 1px solid var(--border);
+        }
+
+        /* Стили для вертикального сплита (Resizer горизонтальный) */
+        .split-container.vertical .resizer {
+            height: 12px;
+            cursor: row-resize;
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+        }
+
+        /* Кнопка на разделителе */
+        .resizer-btn {
+            width: 24px;
+            height: 24px;
+            background: var(--accent);
+            border-radius: 50%;
+            color: white;
+            border: 2px solid var(--panel-bg);
+            font-size: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            position: absolute;
+            z-index: 101;
+        }
+
+        /* --- CONTENT TEXT --- */
+        .content-text { line-height: 1.6; text-align: justify; }
+        .content-text img { max-width: 100%; height: auto; margin: 10px 0; border-radius: 8px; }
+
+        /* --- BOTTOM NAV --- */
+        .bottom-nav {
+            height: calc(50px + var(--safe-bottom));
+            padding-bottom: var(--safe-bottom);
+            background: var(--panel-bg);
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-left: 20px;
+            padding-right: 20px;
+            flex-shrink: 0;
+            z-index: 1000;
+        }
+        .nav-btn {
+            width: 40px; height: 40px; display: flex; justify-content: center; align-items: center;
+            font-size: 18px; color: var(--accent); border: none; background: transparent; cursor: pointer;
+        }
+        .page-indicator { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 14px; color: #555; }
+
+    </style>
 </head>
 <body>
 
-<div id="progressBar"></div>
-
-<div id="library-view" class="active">
-    <div class="lib-header">
-        <span class="lib-title">Библиотека</span>
-        <label class="add-book-btn"><span>+ Книга</span><input type="file" id="libFileInput" style="display:none"></label>
+    <div id="library-view">
+        <h1 style="margin-top:0;">Библиотека</h1>
+        <label class="upload-btn">
+            <i class="fas fa-plus"></i>&nbsp; Добавить (FB2, TXT)
+            <input type="file" id="file-input" accept=".fb2,.txt" style="display: none;">
+        </label>
+        <div id="book-list"></div>
     </div>
-    <div class="lib-grid" id="bookGrid"></div>
-</div>
 
-<div id="reader-view">
-    <div id="menu-bar">
-        <button id="menu-toggle" title="Настройки">☰</button>
-        
-        <div class="top-nav-group">
-            <button id="prevBtn" class="icon-btn" title="Пред. глава">←</button>
-            <select id="chapterSelect"></select>
-            <button id="nextBtn" class="icon-btn" title="След. глава">→</button>
+    <div id="reader-view">
+        <div class="top-bar">
+            <div class="menu-trigger" onclick="toggleMenu()">
+                <i class="fas fa-cog"></i> <span>Настройки</span>
+            </div>
+        </div>
+
+        <div id="settings-panel">
+            <div class="settings-row">
+                <div class="lang-group">
+                    <select id="lang-from" onchange="resetTranslation()"><option value="en">EN</option><option value="ru">RU</option><option value="de">DE</option><option value="zh">CN</option></select>
+                    <i class="fas fa-arrow-right" style="color:#aaa; font-size:12px"></i>
+                    <select id="lang-to" onchange="resetTranslation()"><option value="ru">RU</option><option value="en">EN</option><option value="de">DE</option><option value="zh">CN</option></select>
+                </div>
+            </div>
+            <button class="full-width-btn" id="btn-trans" onclick="toggleTranslateState()">Включить авто-перевод</button>
+            <div class="settings-row">
+                <span style="font-size:14px; color:#666">Экран:</span>
+                <select id="split-mode" onchange="updateLayout()" style="flex:1; padding:8px;">
+                    <option value="horizontal">|| Вертикально</option>
+                    <option value="vertical">= Горизонтально</option>
+                </select>
+            </div>
+            <div class="settings-row">
+                <select id="font-family" onchange="updateStyle()" style="flex:1; padding:8px;">
+                    <option value="-apple-system, sans-serif">Sans Serif</option>
+                    <option value="'Georgia', serif">Serif</option>
+                    <option value="'Courier New', monospace">Mono</option>
+                </select>
+                <button id="btn-bold" onclick="toggleBold()" style="padding:8px 15px; font-weight:bold;">B</button>
+            </div>
+            <div class="settings-row" style="flex-direction: column; align-items: flex-start; gap: 5px;">
+                <div style="display:flex; justify-content:space-between; width:100%; font-size:12px; color:#888;">
+                    <span>Размер шрифта</span><span id="font-val-disp">16px</span>
+                </div>
+                <input type="range" id="font-size" min="12" max="32" value="16" oninput="updateStyle()">
+            </div>
+            <button class="full-width-btn" onclick="closeBook()" style="background:#ff3b30; color:white; border:none; margin-top:10px;">Закрыть книгу</button>
+        </div>
+
+        <div class="split-container" id="split-container">
+            <div class="page-panel" id="panel-orig">
+                <div class="content-text" id="text-orig"></div>
+            </div>
+
+            <div class="resizer" id="resizer">
+                <button class="resizer-btn" id="resizer-btn" onclick="togglePanelVisibility(event)">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <div class="page-panel" id="panel-trans">
+                <div class="content-text" id="text-trans" style="color:#555"></div>
+            </div>
+        </div>
+
+        <div class="bottom-nav">
+            <button class="nav-btn" onclick="prevPage()"><i class="fas fa-chevron-left"></i></button>
+            <span class="page-indicator" id="page-counter">1 из 1</span>
+            <button class="nav-btn" onclick="nextPage()"><i class="fas fa-chevron-right"></i></button>
         </div>
     </div>
 
-    <div id="settings-panel">
-        <div style="padding: 15px;">
-            
-            <div class="menu-row">
-                <button id="backToLib" class="icon-btn" style="width:auto; padding:0 15px; font-size: 14px;">⬅ В библиотеку</button>
-                <div style="display:flex; gap:10px; align-items:center;">
-                    <span>🔊</span>
-                    <select id="voiceSource" style="width: 120px; background:#333; color:fff; border:1px solid #555; height:30px; border-radius:4px">
-                        <option value="google">Google</option>
-                        <option value="edge">Edge</option>
-                    </select>
-                </div>
-            </div>
-            
-            <div id="voiceSettings" class="voice-settings" style="display:none">
-                <div class="voice-row"><span>🇷🇺 RU:</span><select id="voiceRu" class="voice-select"><option value="f">Женский</option><option value="m">Мужской</option></select></div>
-                <div class="voice-row"><span>🇺🇸 EN:</span><select id="voiceEn" class="voice-select"><option value="f">Female</option><option value="m">Male</option></select></div>
-                <div class="voice-row"><span>🇩🇪 DE:</span><select id="voiceDe" class="voice-select"><option value="f">Weiblich</option><option value="m">Männlich</option></select></div>
-            </div>
-            
-            <div class="menu-row">
-                <span>Скорость: <span id="rateVal" style="font-weight:bold; color:var(--accent)">1.0</span></span>
-                <input type="range" id="rateRange" min="0.5" max="2.0" step="0.1" value="1.0" style="flex:1; margin-left:10px">
-            </div>
+    <script>
+        // --- DATA & STATE ---
+        let db;
+        let pages = [];
+        let curPage = 0;
+        let isTransActive = false;
+        let isBold = false;
+        let touchStart = 0;
+        let isTranslationHidden = false; // Состояние скрытия панели
+        const cache = {};
 
-            <div class="menu-row" style="border-top:1px solid #333; padding-top:10px; margin-top:5px">
-                <div class="group">
-                    <select id="fontFamily" style="width:70px"><option value="ui">Sans</option><option value="serif">Serif</option><option value="mono">Mono</option></select>
-                    <select id="fontSize" style="width:50px"><option value="14px">14</option><option value="16px">16</option><option value="18px" selected>18</option><option value="20px">20</option><option value="24px">24</option></select>
-                    <button id="boldToggle" class="icon-btn" style="font-weight:bold; width:30px">B</button>
-                    <button id="zoneToggle" class="icon-btn" title="Вкл/Выкл зоны нажатия">👆</button> 
-                    <button id="layoutBtn" class="icon-btn" title="Вид">⬍</button>
-                </div>
+        // --- RESIZING STATE ---
+        const resizer = document.getElementById('resizer');
+        const splitContainer = document.getElementById('split-container');
+        const panelOrig = document.getElementById('panel-orig');
+        const panelTrans = document.getElementById('panel-trans');
+        let isResizing = false;
+
+        // --- DATABASE ---
+        const req = indexedDB.open("ReaderProV4", 1);
+        req.onupgradeneeded = e => {
+            db = e.target.result;
+            if(!db.objectStoreNames.contains("books")) db.createObjectStore("books", {keyPath:"id", autoIncrement:true});
+        };
+        req.onsuccess = e => { db = e.target.result; loadLib(); };
+
+        document.getElementById('file-input').addEventListener('change', e => {
+            const f = e.target.files[0];
+            if(!f) return;
+            const r = new FileReader();
+            r.onload = ev => {
+                const tx = db.transaction("books", "readwrite");
+                tx.objectStore("books").add({ name: f.name, type: f.name.split('.').pop().toLowerCase(), content: ev.target.result });
+                tx.oncomplete = loadLib;
+            };
+            r.readAsText(f);
+        });
+
+        function loadLib() {
+            const list = document.getElementById('book-list');
+            list.innerHTML = '';
+            const tx = db.transaction("books", "readonly");
+            tx.objectStore("books").openCursor().onsuccess = e => {
+                const c = e.target.result;
+                if(c) {
+                    const el = document.createElement('div');
+                    el.className = 'book-card';
+                    el.innerHTML = `<div><b>${c.value.name}</b></div><i class="fas fa-chevron-right" style="opacity:0.3"></i>`;
+                    el.onclick = () => openBook(c.value);
+                    list.appendChild(el);
+                    c.continue();
+                }
+            };
+        }
+
+        // --- READER LOGIC ---
+        function openBook(book) {
+            document.getElementById('library-view').style.display = 'none';
+            document.getElementById('reader-view').style.display = 'flex';
+            
+            pages = [];
+            if(book.type === 'fb2') parseFB2(book.content);
+            else parseTXT(book.content);
+
+            curPage = 0;
+            // Сброс размеров панелей
+            panelOrig.style.flexBasis = '50%';
+            panelTrans.style.flexBasis = '50%';
+            panelTrans.style.display = 'block';
+            isTranslationHidden = false;
+            updateResizerBtn();
+
+            render();
+            document.getElementById('settings-panel').classList.remove('open');
+        }
+
+        function closeBook() {
+            document.getElementById('reader-view').style.display = 'none';
+            document.getElementById('library-view').style.display = 'block';
+            document.getElementById('settings-panel').classList.remove('open');
+        }
+
+        // --- PARSERS ---
+        function parseTXT(txt) {
+            let buf = "";
+            txt.split('\n').forEach(l => {
+                if(l.trim()) buf += `<p>${l}</p>`;
+                if(buf.length > 1500) { pages.push(buf); buf = ""; }
+            });
+            if(buf) pages.push(buf);
+            if(!pages.length) pages.push("<p>Пусто</p>");
+        }
+
+        function parseFB2(xml) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(xml, "text/xml");
+            const bins = {};
+            doc.querySelectorAll('binary').forEach(b => bins[b.getAttribute('id')] = `data:${b.getAttribute('content-type')};base64,${b.textContent}`);
+            
+            let buf = "";
+            doc.querySelector('body').querySelectorAll('p, image, title').forEach(el => {
+                if(el.tagName === 'image') {
+                    const src = bins[el.getAttribute('l:href').replace('#','')];
+                    if(src) buf += `<img src="${src}">`;
+                } else if(el.tagName === 'title') {
+                    buf += `<h3>${el.textContent}</h3>`;
+                } else {
+                    buf += `<p>${el.textContent}</p>`;
+                }
+                if(buf.length > 1200) { pages.push(buf); buf = ""; }
+            });
+            if(buf) pages.push(buf);
+            if(!pages.length) pages.push("<p>Ошибка FB2</p>");
+        }
+
+        // --- RENDERING ---
+        async function render() {
+            const html = pages[curPage] || "";
+            document.getElementById('text-orig').innerHTML = html;
+            document.getElementById('page-counter').innerText = `${curPage + 1} из ${pages.length}`;
+            
+            const transDiv = document.getElementById('text-trans');
+            if(isTransActive) {
+                const from = document.getElementById('lang-from').value;
+                const to = document.getElementById('lang-to').value;
+                const key = `${curPage}_${from}_${to}`;
                 
-                <div class="group">
-                    <select id="srcLang" class="main-select"><option value="auto">Auto</option><option value="en">EN</option><option value="de">DE</option></select>
-                    <span style="color:#666">→</span>
-                    <select id="tgtLang" class="main-select"><option value="ru">RU</option><option value="en">EN</option></select>
-                </div>
-            </div>
-        </div>
-    </div>
+                if(cache[key]) {
+                    transDiv.innerHTML = cache[key];
+                } else {
+                    transDiv.innerHTML = "<i>Перевод...</i>";
+                    const txt = await mockAPI(html, from, to);
+                    cache[key] = txt;
+                    transDiv.innerHTML = txt;
+                }
+            } else {
+                transDiv.innerHTML = `<div style="text-align:center; padding-top:40%; opacity:0.3">Нажмите «Включить перевод» в меню</div>`;
+            }
+            document.getElementById('panel-orig').scrollTop = 0;
+            document.getElementById('panel-trans').scrollTop = 0;
+        }
 
-    <div id="reader-wrapper" style="position:relative; flex:1; display:flex; overflow:hidden;">
-        <div id="nav-zone-left" class="nav-zone left"></div>
-        <div id="nav-zone-right" class="nav-zone right"></div>
+        // --- RESIZING LOGIC (NEW) ---
+        // Mouse Events
+        resizer.addEventListener('mousedown', initDrag);
+        document.addEventListener('mousemove', doDrag);
+        document.addEventListener('mouseup', stopDrag);
+        
+        // Touch Events
+        resizer.addEventListener('touchstart', initDrag, {passive: false});
+        document.addEventListener('touchmove', doDrag, {passive: false});
+        document.addEventListener('touchend', stopDrag);
 
-        <div id="container">
-            <div id="panel1" class="panel"><div class="panel-head">Оригинал</div><div id="origPanel" class="content-area"></div></div>
-            <div id="resizer" class="resizer"></div>
-            <div id="panel2" class="panel">
-                <div class="panel-head">
-                    <span>Перевод</span>
-                    <div class="trans-controls">
-                        <button id="btnStart" class="btn-tiny btn-start" title="Перевести">▶</button>
-                        <button id="btnRead" class="btn-tiny btn-read" title="Читать">🔊</button>
-                        <button id="btnStop" class="btn-tiny btn-stop" disabled>■ Стоп</button>
-                    </div>
-                </div>
-                <div id="transPanel" class="content-area"></div>
-            </div>
-        </div>
-    </div>
-</div>
+        function initDrag(e) {
+            if(e.target.closest('.resizer-btn')) return; // Не драгать, если кликнули кнопку
+            isResizing = true;
+            e.preventDefault(); // Предотвратить выделение текста
+        }
 
-<button id="global-stop-btn">🔇</button>
-<div id="tooltip"></div>
-<div id="selection-bar"><button class="action-btn" id="translateSelBtn">🌎 Перевести / 🔊</button></div>
-<div id="statusLine">Ready</div>
-<div id="loader"><div>Загрузка...</div></div>
+        function doDrag(e) {
+            if (!isResizing) return;
+            e.preventDefault(); // Блокировка скролла
 
-<div id="image-modal">
-    <img id="modal-img-element" src="" alt="Full view">
-    <button class="modal-close-btn" id="modal-close">Закрыть</button>
-</div>
+            const isVertical = splitContainer.classList.contains('vertical');
+            const containerRect = splitContainer.getBoundingClientRect();
+            
+            let clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            let clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
-<script type="module" src="js/app.js"></script>
+            // Вычисляем процент для первой панели
+            let percentage;
+            if(isVertical) {
+                // Вертикальный сплит (ресайз по Y)
+                const relativeY = clientY - containerRect.top;
+                percentage = (relativeY / containerRect.height) * 100;
+            } else {
+                // Горизонтальный сплит (ресайз по X)
+                const relativeX = clientX - containerRect.left;
+                percentage = (relativeX / containerRect.width) * 100;
+            }
 
+            // Ограничения (минимум 10%, максимум 90%)
+            if (percentage < 10) percentage = 10;
+            if (percentage > 90) percentage = 90;
+
+            panelOrig.style.flexBasis = `${percentage}%`;
+            panelTrans.style.flexBasis = `${100 - percentage}%`;
+        }
+
+        function stopDrag(e) {
+            isResizing = false;
+        }
+
+        // --- PANEL VISIBILITY TOGGLE (NEW) ---
+        function togglePanelVisibility(e) {
+            e.stopPropagation(); // Чтобы не срабатывал drag
+            isTranslationHidden = !isTranslationHidden;
+
+            if(isTranslationHidden) {
+                panelTrans.style.display = 'none';
+                panelOrig.style.flexBasis = '100%';
+            } else {
+                panelTrans.style.display = 'block';
+                // Возвращаем 50/50 или сохраненное (можно доработать сохранение)
+                panelOrig.style.flexBasis = '50%';
+                panelTrans.style.flexBasis = '50%';
+            }
+            updateResizerBtn();
+        }
+
+        function updateResizerBtn() {
+            const btn = document.getElementById('resizer-btn');
+            if(isTranslationHidden) {
+                btn.innerHTML = '<i class="fas fa-chevron-left"></i>'; // Или другая иконка возврата
+                // Если сплит вертикальный, иконка должна быть вверх/вниз
+                if(document.getElementById('split-mode').value === 'vertical') {
+                     btn.innerHTML = '<i class="fas fa-chevron-up"></i>';
+                }
+            } else {
+                btn.innerHTML = '<i class="fas fa-times"></i>'; // Крестик (закрыть)
+            }
+        }
+
+        // --- SETTINGS & NAV ---
+        function toggleMenu() { document.getElementById('settings-panel').classList.toggle('open'); }
+
+        function toggleTranslateState() {
+            isTransActive = !isTransActive;
+            const btn = document.getElementById('btn-trans');
+            btn.innerText = isTransActive ? "Авто-перевод: ВКЛ" : "Включить авто-перевод";
+            if(isTransActive) btn.classList.add('active-btn'); else btn.classList.remove('active-btn');
+            render();
+        }
+
+        function resetTranslation() { if(isTransActive) render(); }
+
+        function updateLayout() {
+            const val = document.getElementById('split-mode').value;
+            const el = document.getElementById('split-container');
+            
+            // Сброс размеров при смене ориентации для избежания глюков
+            panelOrig.style.flexBasis = '50%';
+            panelTrans.style.flexBasis = '50%';
+            
+            if(val === 'vertical') el.classList.add('vertical');
+            else el.classList.remove('vertical');
+            
+            updateResizerBtn(); // Обновить иконку стрелки если скрыто
+        }
+
+        function toggleBold() {
+            isBold = !isBold;
+            const btn = document.getElementById('btn-bold');
+            if(isBold) btn.classList.add('active-btn'); else btn.classList.remove('active-btn');
+            updateStyle();
+        }
+
+        function updateStyle() {
+            const sz = document.getElementById('font-size').value;
+            document.getElementById('font-val-disp').innerText = sz + 'px';
+            const w = isBold ? 'bold' : 'normal';
+            document.querySelectorAll('.content-text').forEach(el => {
+                el.style.fontFamily = document.getElementById('font-family').value;
+                el.style.fontSize = sz + 'px';
+                el.style.fontWeight = w;
+            });
+        }
+
+        function prevPage() { if(curPage > 0) { curPage--; render(); }}
+        function nextPage() { if(curPage < pages.length - 1) { curPage++; render(); }}
+
+        // SWIPE (только по панелям, не по ресайзеру)
+        [panelOrig, panelTrans].forEach(p => {
+            p.addEventListener('touchstart', e => touchStart = e.changedTouches[0].clientX);
+            p.addEventListener('touchend', e => {
+                // Если идет ресайз, свайп не работает
+                if(isResizing) return; 
+                const diff = touchStart - e.changedTouches[0].clientX;
+                if(Math.abs(diff) > 50) {
+                    if(diff > 0) nextPage(); else prevPage();
+                }
+            });
+        });
+
+        // MOCK API
+        function mockAPI(html, f, t) {
+            return new Promise(r => setTimeout(() => {
+                r(`<h4 style="color:#aaa; text-align:center">[${f.toUpperCase()} ➜ ${t.toUpperCase()}]</h4>` + 
+                  html.replace(/<p>/g, `<p style="color:#007AFF">`));
+            }, 300));
+        }
+    </script>
 </body>
 </html>
