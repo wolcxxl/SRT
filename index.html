@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>ReaderIOS</title>
+    <title>Reader IOS</title>
     
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -17,11 +17,18 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
     <style>
-        :root { --accent: #007AFF; --red: #ff3b30; --bg: #f2f2f7; --panel: #fff; --highlight: rgba(255, 235, 59, 0.4); }
+        :root { 
+            --accent: #007AFF; --red: #ff3b30; --bg: #f2f2f7; --panel: #fff; --highlight: rgba(255, 235, 59, 0.4); 
+            /* Безопасная зона + запас для iPhone 15 */
+            --safe-top: calc(env(safe-area-inset-top, 20px) + 15px);
+            --safe-bot: env(safe-area-inset-bottom, 20px);
+        }
         body { margin:0; font-family: -apple-system, sans-serif; background: var(--bg); height: 100vh; display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: none; }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
-        #lib-view { padding: 40px 20px 80px; height: 100%; overflow-y: auto; }
+        /* LIBRARY */
+        #lib-view { padding: 80px 20px 80px; height: 100%; overflow-y: auto; }
+        
         .lib-settings { background: var(--panel); padding: 15px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 10px; }
         .lib-settings-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
         .lib-label { font-size: 13px; color: #666; font-weight: 500; }
@@ -43,8 +50,17 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         #loader-text { color: #555; font-weight: 500; }
 
+        /* READER LAYOUT - IPHONE 15 FIX */
         #read-view { display: none; flex-direction: column; height: 100%; background: #fff; }
-        .top-bar { height: 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; background: #f8f8f8; border-bottom: 1px solid #ddd; padding-top: env(safe-area-inset-top); }
+        
+        .top-bar { 
+            /* Спускаем шапку ниже Dynamic Island */
+            padding-top: var(--safe-top); 
+            height: calc(50px + var(--safe-top)); 
+            display: flex; align-items: center; justify-content: space-between; 
+            padding-left: 15px; padding-right: 15px; 
+            background: #f8f8f8; border-bottom: 1px solid #ddd; 
+        }
         
         .split { flex: 1; display: flex; overflow: hidden; position: relative; touch-action: none; }
         .split.vertical { flex-direction: column; }
@@ -53,41 +69,44 @@
         .sync-active { background-color: var(--highlight); border-radius: 4px; transition: background 0.2s; cursor: pointer; }
         .page p { margin-bottom: 10px; cursor: pointer; }
 
-        /* --- UI FIXES: RESIZER & HANDLE --- */
-        .resizer { 
-            background: #e0e0e0; 
-            z-index: 100; /* Достаточно высоко, чтобы быть над текстом, но ниже меню */
-            display: flex; justify-content: center; align-items: center; 
-        }
-        
-        .split:not(.vertical) .resizer { 
-            width: 12px; /* Узкая палка */
-            margin: 0 -6px; /* Визуальный центр */
-            cursor: col-resize; 
-        }
+        /* UI FIXES: RESIZER & HANDLE */
+        .resizer { background: #e0e0e0; z-index: 100; display: flex; justify-content: center; align-items: center; }
+        .split:not(.vertical) .resizer { width: 12px; margin: 0 -6px; cursor: col-resize; }
         .split.vertical .resizer { height: 12px; margin: -6px 0; cursor: row-resize; }
         
         .handle { 
-            width: 30px; height: 30px; /* Крупная кнопка */
-            border-radius: 50%; 
+            width: 44px; height: 44px; border-radius: 50%; 
             background: var(--accent); color: white; 
             display: flex; justify-content: center; align-items: center; 
             font-size: 16px; border: 3px solid #fff; 
-            pointer-events: auto; 
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3); 
+            pointer-events: auto; box-shadow: 0 4px 10px rgba(0,0,0,0.3); 
             transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            flex-shrink: 0; /* ЗАПРЕТ СПЛЮЩИВАНИЯ! */
-            z-index: 101; /* Чуть выше палки */
+            flex-shrink: 0; z-index: 101;
         }
-        
         .handle.is-close { background: var(--red); }
-        
-        .split.is-hidden .handle { 
-            width: 56px; height: 56px; /* Огромная кнопка сбоку */
-            font-size: 20px; border-width: 4px; 
-        }
-        /* ----------------------- */
+        .split.is-hidden .handle { width: 56px; height: 56px; font-size: 20px; border-width: 4px; }
 
+        .bot-bar { 
+            padding-bottom: var(--safe-bot);
+            height: calc(50px + var(--safe-bot)); 
+            display: flex; align-items: center; justify-content: space-between; 
+            padding-left: 20px; padding-right: 20px; 
+            background: #f8f8f8; border-top: 1px solid #ddd; 
+        }
+        .nav-btn { font-size: 24px; color: var(--accent); background: none; border: none; padding: 10px; }
+
+        /* MENU POSITION FIX */
+        #settings { 
+            position: absolute; 
+            top: calc(50px + var(--safe-top)); /* Сдвигаем меню под новую высокую шапку */
+            left: 0; width: 100%; 
+            background: white; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); 
+            transform: translateY(-200%); transition: 0.3s; 
+            z-index: 2000; border-bottom: 1px solid #eee; 
+        }
+        #settings.open { transform: translateY(0); }
+        
+        /* DICT */
         #dict-popup { display: none; position: absolute; z-index: 3000; background: #333; color: white; padding: 10px 15px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); max-width: 250px; font-size: 14px; text-align: center; }
         #dict-popup::after { content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px; border-width: 5px; border-style: solid; border-color: #333 transparent transparent transparent; }
         .dict-word { font-weight: bold; margin-bottom: 5px; border-bottom: 1px solid #555; padding-bottom: 5px; display: block; }
@@ -95,18 +114,6 @@
         .dict-actions { display: flex; justify-content: center; gap: 15px; margin-top: 5px; }
         .dict-btn { background: none; border: none; color: #4db6ac; cursor: pointer; font-size: 16px; }
 
-        .bot-bar { height: 70px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: #f8f8f8; border-top: 1px solid #ddd; padding-bottom: env(safe-area-inset-bottom); }
-        .nav-btn { font-size: 24px; color: var(--accent); background: none; border: none; padding: 10px; }
-
-        /* MENU Z-INDEX FIX */
-        #settings { 
-            position: absolute; top: 80px; left: 0; width: 100%; 
-            background: white; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); 
-            transform: translateY(-200%); transition: 0.3s; 
-            z-index: 2000; /* ВЫШЕ ВСЕГО (Палка = 100) */
-            border-bottom: 1px solid #eee; 
-        }
-        #settings.open { transform: translateY(0); }
         .row { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; }
         select, button { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; background: white; height: 40px; }
         button.active { background: var(--accent); color: white; border-color: var(--accent); }
@@ -204,7 +211,7 @@
     document.body.addEventListener('click', warmUpTTS, {once:true});
 
     // --- DB ---
-    const req = indexedDB.open("ReaderV26", 1);
+    const req = indexedDB.open("ReaderV27", 1);
     req.onupgradeneeded = e => { db=e.target.result; db.createObjectStore("books",{keyPath:"id",autoIncrement:true}); };
     req.onsuccess = e => { db=e.target.result; loadLib(); restoreLibSettings(); };
 
@@ -308,7 +315,7 @@
         document.getElementById('settings').classList.remove('open');
     }
 
-    // --- GOOGLE CHUNKING ---
+    // --- CHUNKING ---
     function repaginate() {
         pages = [];
         let buf = "";
@@ -506,14 +513,25 @@
         t.split('\n').forEach(l => { if(l.trim()) rawParagraphs.push(`<p>${l}</p>`); });
     }
 
+    // --- RENDER & SYNC (FINAL FIX) ---
     const p1 = document.getElementById('p1'); const p2 = document.getElementById('p2');
+    
+    // ANTI-SHAKE SCROLL FOR iOS
+    let activePanel = null;
+    p1.addEventListener('touchstart', () => { activePanel = p1; }, {passive: true});
+    p2.addEventListener('touchstart', () => { activePanel = p2; }, {passive: true});
+    p1.addEventListener('mouseenter', () => { activePanel = p1; });
+    p2.addEventListener('mouseenter', () => { activePanel = p2; });
+
     function syncScroll(source, target) {
+        if (activePanel && source !== activePanel) return;
         if(isSyncing) return; isSyncing = true;
         const p = source.scrollTop / (source.scrollHeight - source.clientHeight);
         target.scrollTop = p * (target.scrollHeight - target.clientHeight);
-        setTimeout(() => isSyncing = false, 50);
+        setTimeout(() => isSyncing = false, 20);
     }
-    p1.addEventListener('scroll', () => syncScroll(p1, p2)); p2.addEventListener('scroll', () => syncScroll(p2, p1));
+    p1.addEventListener('scroll', () => syncScroll(p1, p2));
+    p2.addEventListener('scroll', () => syncScroll(p2, p1));
 
     function render() {
         const pageData = pages[cur] || { left: "", right: "" };
